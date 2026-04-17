@@ -1,6 +1,6 @@
 {
-  "name": "ERPNext Sales PWA",
-  "short_name": "Sales PWA",
+  "name": "Van Sale",
+  "short_name": "Van Sale",
   "start_url": "./",
   "display": "standalone",
   "theme_color": "#FFFFFF",

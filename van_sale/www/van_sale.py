@@ -8,7 +8,7 @@ def get_context(context):
     csrf_token = frappe.sessions.get_csrf_token()
     
     # 2. Find the build file
-    file_path = frappe.get_app_path("sales_pwa", "public", "frontend", "index.html")
+    file_path = frappe.get_app_path("van_sale", "public", "frontend", "index.html")
     
     if os.path.exists(file_path):
         with open(file_path, "r") as f:

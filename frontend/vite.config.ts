@@ -12,7 +12,7 @@ export default defineConfig({
       autoInstall: true
     })
   ],
-  base: '/assets/sales_pwa/frontend/',
+  base: '/assets/van_sale/frontend/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -29,7 +29,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../sales_pwa/public/frontend',
+    outDir: '../van_sale/public/frontend',
     emptyOutDir: true,
     target: 'es2015',
     sourcemap: true,

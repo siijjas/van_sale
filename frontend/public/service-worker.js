@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sales-pwa-static-v1';
+const CACHE_NAME = 'van-sale-static-v1';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

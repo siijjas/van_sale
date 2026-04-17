@@ -498,7 +498,7 @@ export async function updateSalesOrder(name: string, payload: { items: SalesOrde
 
 export async function submitSalesOrder(name: string): Promise<SalesOrder> {
   await refreshCsrfToken();
-  const res = await fetch('/api/method/sales_pwa.api.submit_sales_order', {
+  const res = await fetch('/api/method/van_sale.api.submit_sales_order', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     credentials: 'include',
@@ -560,7 +560,7 @@ export async function findDraftOrder(customer: string, owner?: string): Promise<
 }
 
 export async function getOutstandingInvoices(customer: string): Promise<OutstandingInvoice[]> {
-  const res = await fetch(`/api/method/sales_pwa.api.get_outstanding_invoices?customer=${encodeURIComponent(customer)}`, {
+  const res = await fetch(`/api/method/van_sale.api.get_outstanding_invoices?customer=${encodeURIComponent(customer)}`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -569,7 +569,7 @@ export async function getOutstandingInvoices(customer: string): Promise<Outstand
 }
 
 export async function getPaymentModes(): Promise<PaymentMode[]> {
-  const res = await fetch('/api/method/sales_pwa.api.get_payment_modes', {
+  const res = await fetch('/api/method/van_sale.api.get_payment_modes', {
     method: 'GET',
     credentials: 'include',
   });
@@ -579,7 +579,7 @@ export async function getPaymentModes(): Promise<PaymentMode[]> {
 
 export async function getSalesOrders(customer: string): Promise<SalesOrderSummary[]> {
   const params = new URLSearchParams({ customer });
-  const res = await fetch(`/api/method/sales_pwa.api.get_sales_orders?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.api.get_sales_orders?${params.toString()}`, {
     headers: defaultHeaders(),
     credentials: 'include',
   });
@@ -589,7 +589,7 @@ export async function getSalesOrders(customer: string): Promise<SalesOrderSummar
 
 export async function getCustomerSummary(customer: string): Promise<CustomerSummary> {
   const params = new URLSearchParams({ customer });
-  const res = await fetch(`/api/method/sales_pwa.api.get_customer_summary?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.api.get_customer_summary?${params.toString()}`, {
     headers: defaultHeaders(),
     credentials: 'include',
   });
@@ -616,7 +616,7 @@ export async function createPaymentEntry(
   }
 
   await refreshCsrfToken();
-  const res = await fetch('/api/method/sales_pwa.api.create_payment_entry', {
+  const res = await fetch('/api/method/van_sale.api.create_payment_entry', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     credentials: 'include',
@@ -635,7 +635,7 @@ export async function getCustomerLedger(
   if (fromDate) params.append('from_date', fromDate);
   if (toDate) params.append('to_date', toDate);
 
-  const res = await fetch(`/api/method/sales_pwa.api.get_customer_ledger?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.api.get_customer_ledger?${params.toString()}`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -644,7 +644,7 @@ export async function getCustomerLedger(
 }
 
 export async function getDailySummary(): Promise<{ sales_orders: { count: number; total: number }; payments: { count: number; total: number } }> {
-  const res = await fetch('/api/method/sales_pwa.api.get_daily_summary', {
+  const res = await fetch('/api/method/van_sale.api.get_daily_summary', {
     method: 'GET',
     credentials: 'include',
   });
@@ -656,7 +656,7 @@ export async function getDailyLog(doctype: 'Sales Order' | 'Payment Entry') {
     doctype,
     _: Date.now().toString()
   });
-  const res = await fetch(`/api/method/sales_pwa.api.get_daily_log?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.api.get_daily_log?${params.toString()}`, {
     method: 'GET',
     credentials: 'include',
   });

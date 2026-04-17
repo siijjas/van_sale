@@ -1,9 +1,9 @@
 [project]
-name = "sales_pwa"
+name = "van_sale"
 authors = [
     { name = "me", email = "me@me.com"}
 ]
-description = "App for Sales Order"
+description = "Van sale application"
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
