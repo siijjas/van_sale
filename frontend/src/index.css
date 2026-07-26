@@ -1,3 +1,134 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ===========================================================================
+   Design tokens — semantic color system driving light + dark themes.
+   Values are space-separated RGB channels so Tailwind's `/<alpha>` works.
+   =========================================================================== */
+@layer base {
+  :root {
+    --c-background: 244 246 250; /* app canvas */
+    --c-elevated: 255 255 255; /* sticky bars / shell chrome */
+    --c-card: 255 255 255;
+    --c-card-muted: 248 250 252;
+    --c-foreground: 15 23 42; /* primary text */
+    --c-muted: 100 116 139; /* secondary text */
+    --c-subtle: 148 163 184; /* tertiary text / icons */
+    --c-line: 226 232 240; /* hairline borders */
+    --c-line-strong: 203 213 225;
+    --c-input: 255 255 255;
+    --c-ring: 79 70 229;
+
+    --c-primary: 79 70 229; /* indigo-600 */
+    --c-primary-fg: 255 255 255;
+    --c-primary-soft: 238 242 255; /* indigo-50 */
+
+    --c-success: 5 150 105; /* emerald-600 */
+    --c-success-fg: 255 255 255;
+    --c-warning: 217 119 6; /* amber-600 */
+    --c-warning-fg: 255 255 255;
+    --c-danger: 220 38 38; /* red-600 */
+    --c-danger-fg: 255 255 255;
+    --c-info: 2 132 199; /* sky-600 */
+    --c-info-fg: 255 255 255;
+
+    --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+    --shadow-raised: 0 4px 12px -2px rgb(15 23 42 / 0.10), 0 2px 6px -2px rgb(15 23 42 / 0.06);
+    --shadow-pop: 0 16px 40px -12px rgb(15 23 42 / 0.25);
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --c-background: 2 6 23; /* slate-950 */
+    --c-elevated: 15 23 42; /* slate-900 */
+    --c-card: 17 26 45;
+    --c-card-muted: 30 41 59;
+    --c-foreground: 241 245 249; /* slate-100 */
+    --c-muted: 148 163 184; /* slate-400 */
+    --c-subtle: 100 116 139; /* slate-500 */
+    --c-line: 39 51 73;
+    --c-line-strong: 51 65 85;
+    --c-input: 30 41 59;
+    --c-ring: 129 140 248;
+
+    --c-primary: 129 140 248; /* indigo-400 — readable on dark */
+    --c-primary-fg: 17 24 39;
+    --c-primary-soft: 30 41 59;
+
+    --c-success: 52 211 153; /* emerald-400 */
+    --c-success-fg: 6 24 18;
+    --c-warning: 251 191 36; /* amber-400 */
+    --c-warning-fg: 41 25 0;
+    --c-danger: 248 113 113; /* red-400 */
+    --c-danger-fg: 35 5 5;
+    --c-info: 56 189 248; /* sky-400 */
+    --c-info-fg: 4 22 33;
+
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    --shadow-raised: 0 6px 18px -4px rgb(0 0 0 / 0.5);
+    --shadow-pop: 0 18px 48px -12px rgb(0 0 0 / 0.7);
+
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  /* Theme-aware native controls + tabular figures for money. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-line-strong;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Consistent, theme-aware focus treatment for interactive elements. */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  /* Field input baseline — large touch target, theme-aware. */
+  .field-input {
+    @apply w-full rounded-2xl border border-line bg-input px-4 text-base text-foreground
+           placeholder:text-subtle shadow-sm transition
+           focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30;
+    min-height: 3.25rem;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-2xl bg-card-muted;
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+}

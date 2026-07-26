@@ -60,9 +60,9 @@ app_license = "mit"
 # home_page = "login"
 
 # website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
+role_home_page = {
+	"Van Sales Driver": "/van_sale"
+}
 
 # Generators
 # ----------
@@ -113,17 +113,37 @@ app_license = "mit"
 
 # notification_config = "van_sale.notifications.get_notification_config"
 
+# Fixtures — ship the Van Sales Driver role with the app so it is created on install
+fixtures = [
+	{
+		"dt": "Role",
+		"filters": [["name", "in", ["Van Sales Driver"]]]
+	}
+]
+
 # Permissions
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Van EOD Report": "van_sale.permissions.get_van_eod_report_permission_query_conditions",
+	"Van Expense Log": "van_sale.permissions.get_van_expense_log_permission_query_conditions",
+	"Van Profile": "van_sale.permissions.get_van_profile_permission_query_conditions",
+	"Van Shift Opening": "van_sale.permissions.get_van_shift_opening_permission_query_conditions",
+	"Van Shift Closing": "van_sale.permissions.get_van_shift_closing_permission_query_conditions",
+}
+
+has_permission = {
+	"Van EOD Report": "van_sale.permissions.has_van_eod_report_permission",
+	"Van Expense Log": "van_sale.permissions.has_van_expense_log_permission",
+	"Van Profile": "van_sale.permissions.has_van_profile_permission",
+	"Van Shift Opening": "van_sale.permissions.has_van_shift_opening_permission",
+	"Van Shift Closing": "van_sale.permissions.has_van_shift_closing_permission",
+}
+
+# Run after every bench migrate to ensure Custom DocPerm entries exist for the
+# Van Sales Driver role on the standard ERPNext doctypes the PWA uses via REST.
+after_migrate = ["van_sale.van_sale.setup.setup_van_sales_driver_permissions"]
 
 # DocType Class
 # ---------------
@@ -137,13 +157,9 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+# Cache invalidation for Van Profile is handled by the VanProfile DocType class
+# (on_update / on_trash in van_sale/van_sale/van_sale/doctype/van_profile/van_profile.py).
+# No doc_events hook needed here.
 
 # Scheduled Tasks
 # ---------------

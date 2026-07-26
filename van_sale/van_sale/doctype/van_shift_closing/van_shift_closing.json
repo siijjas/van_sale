@@ -1,0 +1,186 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:VCLOSE-{YYYY}-{MM}-{DD}-{#####}",
+ "creation": "2026-06-28 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "opening_shift",
+  "driver",
+  "shift_date",
+  "status",
+  "company",
+  "van_profile",
+  "period_start",
+  "period_end",
+  "section_totals",
+  "total_sales",
+  "total_collections",
+  "total_expenses",
+  "total_opening_float",
+  "expected_cash",
+  "net_difference",
+  "section_reconciliation",
+  "payment_reconciliation",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "opening_shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Opening Shift",
+   "options": "Van Shift Opening",
+   "reqd": 1
+  },
+  {
+   "fieldname": "driver",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Driver",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shift_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Shift Date",
+   "reqd": 1
+  },
+  {
+   "default": "Closed",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Closed"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "van_profile",
+   "fieldtype": "Link",
+   "label": "Van Profile",
+   "options": "Van Profile"
+  },
+  {
+   "fieldname": "period_start",
+   "fieldtype": "Datetime",
+   "label": "Period Start"
+  },
+  {
+   "fieldname": "period_end",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Period End"
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_sales",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Sales"
+  },
+  {
+   "fieldname": "total_collections",
+   "fieldtype": "Currency",
+   "label": "Total Collections"
+  },
+  {
+   "fieldname": "total_expenses",
+   "fieldtype": "Currency",
+   "label": "Total Expenses"
+  },
+  {
+   "fieldname": "total_opening_float",
+   "fieldtype": "Currency",
+   "label": "Total Opening Float"
+  },
+  {
+   "description": "Opening cash float + cash collections - cash expenses",
+   "fieldname": "expected_cash",
+   "fieldtype": "Currency",
+   "label": "Expected Cash"
+  },
+  {
+   "description": "Sum of per-mode counted minus expected",
+   "fieldname": "net_difference",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Difference"
+  },
+  {
+   "fieldname": "section_reconciliation",
+   "fieldtype": "Section Break",
+   "label": "Payment Reconciliation"
+  },
+  {
+   "fieldname": "payment_reconciliation",
+   "fieldtype": "Table",
+   "label": "Payment Reconciliation",
+   "options": "Van Shift Payment Reconciliation"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-06-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Van Sale",
+ "name": "Van Shift Closing",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "submit": 1,
+   "role": "Van Sales Driver"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

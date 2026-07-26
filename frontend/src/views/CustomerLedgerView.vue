@@ -1,142 +1,98 @@
 <template>
-  <div class="flex flex-col h-full bg-gray-50">
-    <!-- Header -->
-    <div class="px-4 py-3 bg-white border-b sticky top-0 z-10">
-      <div class="flex items-center justify-between gap-2 mb-2">
-        <div class="flex items-center gap-2">
-          <button class="text-sm text-gray-600" @click="$router.back()">Back</button>
-          <h2 class="text-base font-semibold text-gray-900">Customer Ledger</h2>
-        </div>
-        <div class="flex items-center gap-3">
-          <button class="text-sm text-gray-600" @click="$router.push({ name: 'dashboard' })">Dashboard</button>
-          <button class="text-sm text-blue-600" @click="reload">Refresh</button>
-        </div>
-      </div>
-      
-      <!-- Customer Selector -->
-      <div class="mb-2">
-        <div v-if="customer" class="bg-blue-50 border border-blue-100 px-3 py-2 rounded-lg flex justify-between items-center" @click="changeCustomer">
-          <p class="text-sm font-bold text-gray-900">{{ customer.customer_name }}</p>
-          <span class="text-xs text-blue-600 font-medium">Change</span>
-        </div>
+  <WorkspacePage back eyebrow="Ledger" title="Customer ledger" description="Invoiced amounts, receipts, and running balance." width="default">
+    <template #actions>
+      <AppButton variant="secondary" size="sm" icon="refresh" :loading="loading" @click="reload">Refresh</AppButton>
+    </template>
+
+    <div class="space-y-4">
+      <!-- Customer + period controls -->
+      <AppCard padding="sm" class="space-y-3">
         <button
-          v-else
-          class="w-full bg-white border border-dashed border-gray-300 rounded-lg py-2 text-sm text-gray-500"
-          @click="$router.push({ name: 'customers', query: { redirect: 'ledger' } })"
-        >+ Select Customer</button>
-      </div>
-
-      <!-- Duration Filter -->
-      <div>
-        <label class="block text-[10px] font-semibold text-gray-400 uppercase mb-0.5">Period</label>
-        <select v-model="selectedPeriod" class="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500">
-          <option value="week">Last Week</option>
-          <option value="month">Last Month</option>
-          <option value="3months">Last 3 Months</option>
-          <option value="6months">Last 6 Months</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="flex-1 overflow-y-auto">
-      <!-- Opening Balance Summary -->
-      <div v-if="customer && !loading && entries.length > 0" class="px-4 pt-4">
-        <div class="bg-white rounded-xl border border-gray-200 px-4 py-2.5 shadow-sm">
-          <p class="text-[10px] text-gray-400 uppercase">Opening Balance</p>
-          <p class="text-base font-bold text-gray-900">{{ currency }} {{ openingBalance.toFixed(2) }}</p>
-        </div>
-      </div>
-
-      <!-- Invoiced & Received Summary -->
-      <div v-if="customer && !loading && entries.length > 0" class="px-4 pt-3">
-        <div class="grid grid-cols-2 gap-2">
-          <div class="bg-white rounded-xl border border-gray-200 px-4 py-2.5 shadow-sm">
-            <p class="text-[10px] text-gray-400 uppercase">Invoiced</p>
-            <p class="text-base font-bold text-red-600">{{ currency }} {{ totalDebit.toFixed(2) }}</p>
+          v-if="customer"
+          class="focus-ring flex w-full items-center justify-between rounded-2xl bg-primary/10 px-3.5 py-3 text-left"
+          @click="changeCustomer"
+        >
+          <div class="flex items-center gap-3">
+            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-xs font-bold text-primary">
+              {{ initials(customer.customer_name) }}
+            </span>
+            <p class="font-bold text-foreground">{{ customer.customer_name }}</p>
           </div>
-          <div class="bg-white rounded-xl border border-gray-200 px-4 py-2.5 shadow-sm">
-            <p class="text-[10px] text-gray-400 uppercase">Received</p>
-            <p class="text-base font-bold text-green-600">{{ currency }} {{ totalCredit.toFixed(2) }}</p>
-          </div>
+          <span class="text-xs font-semibold text-primary">Change</span>
+        </button>
+        <AppButton v-else variant="secondary" block icon="plus" @click="$router.push({ name: 'customers', query: { redirect: 'ledger' } })">
+          Select customer
+        </AppButton>
+
+        <FormField label="Period">
+          <BaseSelect v-model="selectedPeriod">
+            <option value="week">Last week</option>
+            <option value="month">Last month</option>
+            <option value="3months">Last 3 months</option>
+            <option value="6months">Last 6 months</option>
+          </BaseSelect>
+        </FormField>
+      </AppCard>
+
+      <SkeletonList v-if="loading" :rows="6" height="3.5rem" />
+      <EmptyState v-else-if="customer && !entries.length" icon="ledger" title="No transactions" description="Nothing recorded for this period." />
+
+      <template v-else-if="customer && entries.length">
+        <!-- Summary -->
+        <div class="grid grid-cols-3 gap-3">
+          <KpiTile label="Opening" :value="`${currency} ${openingBalance.toFixed(2)}`" tone="info" />
+          <KpiTile label="Invoiced" :value="`${currency} ${totalDebit.toFixed(2)}`" tone="danger" />
+          <KpiTile label="Received" :value="`${currency} ${totalCredit.toFixed(2)}`" tone="success" />
         </div>
-      </div>
 
-      <!-- Loading -->
-      <div v-if="loading" class="px-4 pt-4 space-y-2">
-        <div v-for="i in 6" :key="i" class="bg-white h-14 rounded-lg animate-pulse" />
-      </div>
-
-      <!-- Empty State -->
-      <div v-else-if="entries.length === 0 && customer" class="px-4 pt-10 text-center">
-        <p class="text-gray-400 text-sm">No transactions found for this period.</p>
-      </div>
-
-      <!-- Transaction List -->
-      <div v-else-if="entries.length > 0" class="px-4 pt-3">
-        <p class="text-[10px] font-bold text-gray-400 uppercase mb-2 px-1">{{ entries.length }} Transactions</p>
-        
-        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
-          <div
-            v-for="(entry, index) in entriesWithBalance"
-            :key="index"
-            class="px-3 py-2.5 flex items-center gap-3"
-          >
-            <!-- Icon -->
-            <div 
-              class="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-              :class="entry.debit > 0 ? 'bg-red-50' : 'bg-green-50'"
-            >
-              <span class="text-sm" v-if="entry.debit > 0">📄</span>
-              <span class="text-sm" v-else>💵</span>
-            </div>
-            
-            <!-- Details -->
-            <div class="flex-1 min-w-0">
-              <div class="flex justify-between items-start">
-                <div class="min-w-0 pr-2">
-                  <p class="text-sm font-medium text-gray-900 truncate">
-                    {{ getDescription(entry) }}
-                  </p>
-                  <p class="text-[10px] text-gray-400">{{ formatDate(entry.posting_date) }} · {{ entry.voucher_no }}</p>
-                </div>
-                <div class="text-right shrink-0">
-                  <p 
-                    class="text-sm font-bold tabular-nums"
-                    :class="entry.debit > 0 ? 'text-red-600' : 'text-green-600'"
-                  >
-                    {{ entry.debit > 0 ? '+' : '-' }} {{ currency }} {{ (entry.debit > 0 ? entry.debit : entry.credit).toFixed(2) }}
-                  </p>
-                  <p class="text-[10px] text-gray-400 tabular-nums">Bal: {{ currency }} {{ Math.abs(entry.balance).toFixed(2) }}</p>
-                </div>
+        <!-- Transactions -->
+        <AppCard padding="none">
+          <div class="border-b border-line px-4 py-3 text-xs font-bold uppercase tracking-wider text-muted">
+            {{ entries.length }} transactions
+          </div>
+          <div class="divide-y divide-line">
+            <div v-for="(entry, index) in entriesWithBalance" :key="index" class="flex items-center gap-3 px-4 py-3">
+              <span
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                :class="entry.debit > 0 ? 'bg-danger/12 text-danger' : 'bg-success/12 text-success'"
+              >
+                <AppIcon :name="entry.debit > 0 ? 'file-text' : 'banknote'" :size="17" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-semibold text-foreground">{{ getDescription(entry) }}</p>
+                <p class="text-[11px] text-muted">{{ formatDate(entry.posting_date) }} • {{ entry.voucher_no }}</p>
+              </div>
+              <div class="shrink-0 text-right">
+                <p class="tnum text-sm font-bold" :class="entry.debit > 0 ? 'text-danger' : 'text-success'">
+                  {{ entry.debit > 0 ? '+' : '−' }} {{ currency }} {{ (entry.debit > 0 ? entry.debit : entry.credit).toFixed(2) }}
+                </p>
+                <p class="tnum text-[11px] text-muted">Bal {{ currency }} {{ Math.abs(entry.balance).toFixed(2) }}</p>
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        </AppCard>
 
-      <!-- Outstanding Balance at Bottom -->
-      <div v-if="customer && !loading && entries.length > 0" class="px-4 pt-3 pb-20">
-        <div class="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-xl px-4 py-4 shadow-lg">
-          <p class="text-xs opacity-90 uppercase font-semibold">Outstanding Balance</p>
-          <p class="text-2xl font-bold mt-1">
-            {{ currency }} {{ Math.abs(currentBalance).toFixed(2) }}
-          </p>
-        </div>
-      </div>
+        <!-- Outstanding -->
+        <AppCard class="bg-gradient-to-br from-primary to-primary/80 text-primary-fg" padding="lg">
+          <p class="text-xs font-semibold uppercase tracking-wide opacity-80">Outstanding balance</p>
+          <p class="tnum mt-1 text-3xl font-bold">{{ currency }} {{ Math.abs(currentBalance).toFixed(2) }}</p>
+        </AppCard>
+      </template>
     </div>
-  </div>
+  </WorkspacePage>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { useSessionStore } from '../stores/session';
 import * as api from '../api/frappe';
 import type { LedgerEntry } from '../types';
+import WorkspacePage from '../components/WorkspacePage.vue';
+import { AppCard, AppButton, AppIcon, KpiTile, FormField, BaseSelect, SkeletonList, EmptyState } from '../components/ui';
 
 const store = useSessionStore();
 const route = useRoute();
-const router = useRouter();
 
 const customer = computed(() => store.customer);
 const currency = computed(() => store.currencyDisplay);
@@ -149,26 +105,11 @@ const loading = ref(false);
 const dateRange = computed(() => {
   const end = new Date();
   const start = new Date();
-  
-  switch (selectedPeriod.value) {
-    case 'week':
-      start.setDate(start.getDate() - 7);
-      break;
-    case 'month':
-      start.setMonth(start.getMonth() - 1);
-      break;
-    case '3months':
-      start.setMonth(start.getMonth() - 3);
-      break;
-    case '6months':
-      start.setMonth(start.getMonth() - 6);
-      break;
-  }
-  
-  return {
-    from: start.toISOString().slice(0, 10),
-    to: end.toISOString().slice(0, 10)
-  };
+  if (selectedPeriod.value === 'week') start.setDate(start.getDate() - 7);
+  else if (selectedPeriod.value === 'month') start.setMonth(start.getMonth() - 1);
+  else if (selectedPeriod.value === '3months') start.setMonth(start.getMonth() - 3);
+  else if (selectedPeriod.value === '6months') start.setMonth(start.getMonth() - 6);
+  return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
 });
 
 const customerParam = route.query.customer as string | undefined;
@@ -178,29 +119,18 @@ interface EntryWithBalance extends LedgerEntry {
   balance: number;
 }
 
-const entriesWithBalance = computed(() => {
+const entriesWithBalance = computed<EntryWithBalance[]>(() => {
   let running = openingBalance.value;
-  return entries.value.map(entry => {
-    running += (entry.debit - entry.credit);
+  return entries.value.map((entry) => {
+    running += entry.debit - entry.credit;
     return { ...entry, balance: running };
-  }); // Oldest to newest (chronological)
-}); 
-
-const currentBalance = computed(() => {
-  return openingBalance.value + entries.value.reduce((sum, e) => sum + e.debit - e.credit, 0);
+  });
 });
-
-// Removed computed openingBalance since it's now a ref from API
-
-const closingBalance = computed(() => {
-  if (entriesWithBalance.value.length === 0) return 0;
-  // Closing balance is the balance after the last transaction
-  return entriesWithBalance.value[entriesWithBalance.value.length - 1].balance;
-});
-
+const currentBalance = computed(() => openingBalance.value + entries.value.reduce((sum, e) => sum + e.debit - e.credit, 0));
 const totalDebit = computed(() => entries.value.reduce((sum, e) => sum + e.debit, 0));
 const totalCredit = computed(() => entries.value.reduce((sum, e) => sum + e.credit, 0));
 
+const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 const getDescription = (entry: EntryWithBalance): string => {
   const labels: Record<string, string> = {
@@ -218,11 +148,34 @@ const formatDate = (dateStr: string): string => {
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  
   if (date.toDateString() === today.toDateString()) return 'Today';
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
-  
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+const loadLedger = async () => {
+  if (!customer.value) return;
+  loading.value = true;
+  try {
+    const result = await api.getCustomerLedger(customer.value.name, dateRange.value.from, dateRange.value.to);
+    if (Array.isArray(result)) {
+      entries.value = result;
+      openingBalance.value = 0;
+    } else {
+      entries.value = (result as any).entries || [];
+      openingBalance.value = (result as any).opening_balance || 0;
+    }
+  } catch (e) {
+    console.error('Failed to load ledger', e);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const reload = () => customer.value && loadLedger();
+const changeCustomer = () => {
+  store.setCustomer(null);
+  entries.value = [];
 };
 
 onMounted(() => {
@@ -232,41 +185,5 @@ onMounted(() => {
   if (customer.value) loadLedger();
 });
 
-const reload = () => {
-  if (customer.value) loadLedger();
-};
-
-const loadLedger = async () => {
-  if (!customer.value) return;
-  loading.value = true;
-  try {
-    const result = await api.getCustomerLedger(customer.value.name, dateRange.value.from, dateRange.value.to);
-    // API now returns { opening_balance, entries } but we need to update api/frappe.ts to reflect type change
-    // For now assuming result is correct shape if type definition allows
-    // But wait, api/frappe.ts returns (data.message || []) as LedgerEntry[]
-    // I need to update api/frappe.ts first to handle the new return type!
-    // Let's assume I'll update api/frappe.ts next.
-    if (Array.isArray(result)) {
-       // Handle legacy or error case where it returns array directly
-       entries.value = result;
-       openingBalance.value = 0;
-    } else {
-       entries.value = (result as any).entries || [];
-       openingBalance.value = (result as any).opening_balance || 0;
-    }
-  } catch (e) {
-    console.error('Failed to load ledger', e);
-  } finally {
-    loading.value = false;
-  }
-};
-
-const changeCustomer = () => {
-  store.setCustomer(null);
-  entries.value = [];
-};
-
-watch([customer, selectedPeriod], () => {
-  if (customer.value) loadLedger();
-});
+watch([customer, selectedPeriod], () => customer.value && loadLedger());
 </script>

@@ -1,5 +1,10 @@
 const CACHE_NAME = 'van-sale-static-v1';
+const API_CACHE_NAME = 'van-sale-api-v1';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
+const CACHEABLE_API_PATTERNS = [
+  '/api/method/van_sale.api.get_driver_stock_dashboard',
+  '/api/method/van_sale.api.get_app_context',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -21,7 +26,20 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const isApi = request.url.includes('/api/');
   if (isApi) {
-    // network-only for API to ensure fresh data
+    const isCacheableApi = request.method === 'GET' && CACHEABLE_API_PATTERNS.some((pattern) => request.url.includes(pattern));
+    if (!isCacheableApi) {
+      return;
+    }
+
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(API_CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
     return;
   }
 

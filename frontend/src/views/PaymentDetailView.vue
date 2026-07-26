@@ -1,79 +1,60 @@
 <template>
-  <div class="bg-gray-50 min-h-screen">
-    <div v-if="loading" class="flex justify-center items-center h-screen">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-    </div>
+  <WorkspacePage back eyebrow="Payment detail" title="Payment Entry" description="Amount, mode, and invoice allocation." width="default">
+    <template #actions>
+      <AppButton v-if="payment && payment.docstatus === 1" variant="secondary" size="sm" icon="printer" @click="printPdf">Print</AppButton>
+    </template>
 
-    <div v-else-if="payment" class="px-4 py-4">
-      <div class="flex items-center gap-3 mb-6">
-        <button 
-          class="bg-white p-2 rounded-lg border border-gray-200 shadow-sm"
-          @click="$router.back()"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-600"><path d="m15 18-6-6 6-6"/></svg>
-        </button>
-        <h1 class="text-xl font-bold text-gray-900">Payment Details</h1>
-      </div>
+    <SkeletonList v-if="loading" :rows="2" height="6rem" />
 
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
-        <div class="flex justify-between items-start mb-4">
+    <div v-else-if="payment" class="space-y-4">
+      <!-- Amount hero -->
+      <AppCard class="bg-gradient-to-br from-success to-success/80 text-success-fg" padding="lg">
+        <div class="flex items-start justify-between">
           <div>
-            <p class="text-xs text-gray-500 uppercase font-semibold">Customer</p>
-            <p class="text-lg font-bold text-gray-900">{{ payment.party_name }}</p>
+            <p class="text-xs font-semibold uppercase tracking-wide opacity-80">Customer</p>
+            <p class="text-lg font-bold">{{ payment.party_name }}</p>
           </div>
-          <span class="bg-emerald-50 text-emerald-600 text-xs font-bold px-2 py-1 rounded-full uppercase">
-            {{ payment.status }}
-          </span>
+          <StatusBadge tone="neutral" :dot="false" class="bg-white/20 text-success-fg">{{ payment.status }}</StatusBadge>
         </div>
-
-        <div class="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <p class="text-xs text-gray-500 uppercase font-semibold">Date</p>
-            <p class="text-sm font-medium text-gray-900">{{ formatDate(payment.posting_date) }}</p>
-          </div>
-          <div>
-            <p class="text-xs text-gray-500 uppercase font-semibold">Mode</p>
-            <p class="text-sm font-medium text-gray-900">{{ payment.mode_of_payment }}</p>
-          </div>
+        <p class="mt-5 text-xs font-semibold uppercase tracking-wide opacity-80">Amount paid</p>
+        <p class="tnum text-4xl font-bold">{{ currency }} {{ fmt(payment.paid_amount) }}</p>
+        <div class="mt-4 flex gap-6 text-sm font-medium opacity-90">
+          <span>{{ formatDate(payment.posting_date) }}</span>
+          <span>{{ payment.mode_of_payment }}</span>
         </div>
+      </AppCard>
 
-        <div class="pt-4 border-t border-gray-100">
-          <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Amount Paid</p>
-          <p class="text-2xl font-bold text-gray-900">{{ currency }} {{ payment.paid_amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</p>
-        </div>
-      </div>
-
-      <div v-if="payment.references && payment.references.length > 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <h3 class="text-sm font-bold text-gray-900 mb-3">Allocated To</h3>
-        <div class="space-y-3">
-          <div 
-            v-for="ref in payment.references" 
-            :key="ref.name"
-            class="flex justify-between items-center py-2 border-b border-gray-50 last:border-0"
-          >
-            <div>
-              <p class="text-sm font-semibold text-gray-900">{{ ref.reference_name }}</p>
-              <p class="text-xs text-gray-500">{{ ref.reference_doctype }}</p>
+      <AppCard v-if="payment.references && payment.references.length">
+        <h3 class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Allocated to</h3>
+        <div class="divide-y divide-line">
+          <div v-for="ref in payment.references" :key="ref.name" class="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+            <div class="min-w-0">
+              <p class="truncate text-sm font-semibold text-foreground">{{ ref.reference_name }}</p>
+              <p class="text-xs text-muted">{{ ref.reference_doctype }}</p>
             </div>
-            <p class="text-sm font-bold text-gray-900">{{ currency }} {{ ref.allocated_amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</p>
+            <p class="tnum text-sm font-bold text-foreground">{{ currency }} {{ fmt(ref.allocated_amount) }}</p>
           </div>
         </div>
-      </div>
+      </AppCard>
     </div>
-  </div>
+  </WorkspacePage>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useSessionStore } from '../stores/session';
-import { getPaymentEntry } from '../api/frappe';
+import { getPaymentEntry, downloadPdf } from '../api/frappe';
+import WorkspacePage from '../components/WorkspacePage.vue';
+import { AppCard, AppButton, StatusBadge, SkeletonList } from '../components/ui';
 
 const route = useRoute();
 const store = useSessionStore();
 const currency = computed(() => store.currencyDisplay);
 const payment = ref<any>(null);
 const loading = ref(true);
+
+const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 onMounted(async () => {
   const name = route.params.name as string;
@@ -86,8 +67,6 @@ onMounted(async () => {
   }
 });
 
-const formatDate = (date: string) => {
-  if (!date) return '';
-  return new Date(date).toLocaleDateString();
-};
+const formatDate = (date: string) => (date ? new Date(date).toLocaleDateString() : '');
+const printPdf = () => payment.value && downloadPdf('Payment Entry', payment.value.name);
 </script>

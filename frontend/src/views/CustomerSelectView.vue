@@ -1,43 +1,47 @@
 <template>
-  <div class="flex flex-col h-full bg-white">
-    <div class="px-4 py-3 border-b border-gray-100 sticky top-0 bg-white flex items-center gap-2">
-      <button class="text-sm text-gray-600" @click="$router.back()">Back</button>
-      <input
-        v-model="txt"
-        class="flex-1 bg-gray-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-        placeholder="Search customers"
-      />
-    </div>
-    <div class="flex-1 overflow-y-auto px-4">
-      <div v-if="loading" class="space-y-2 py-3">
-        <div class="h-14 bg-gray-100 rounded-lg animate-pulse"></div>
-        <div class="h-14 bg-gray-100 rounded-lg animate-pulse"></div>
+  <WorkspacePage back :eyebrow="actionLabel" title="Select customer" width="default">
+    <div class="space-y-4">
+      <div class="sticky top-[60px] z-30 -mx-1 px-1 pb-1">
+        <SearchBar v-model="txt" placeholder="Search customers by name or ID…" />
       </div>
-      <div v-else class="divide-y divide-gray-100">
-        <button
+
+      <AppAlert tone="info" :message="actionHint" />
+
+      <SkeletonList v-if="loading" :rows="5" height="4rem" />
+      <EmptyState v-else-if="!customers.length" icon="users" title="No customers found" description="Try a different search term." />
+      <div v-else class="space-y-2.5">
+        <AppCard
           v-for="customer in customers"
           :key="customer.name"
-          class="w-full text-left py-3 flex justify-between items-center"
+          padding="sm"
+          interactive
           @click="selectCustomer(customer)"
         >
-          <div>
-            <p class="font-medium text-gray-900">{{ customer.customer_name }}</p>
-            <p class="text-xs text-gray-500">{{ customer.name }}</p>
+          <div class="flex items-center gap-3">
+            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-sm font-bold text-primary">
+              {{ initials(customer.customer_name) }}
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate font-semibold text-foreground">{{ customer.customer_name }}</p>
+              <p class="truncate text-xs text-muted">{{ customer.name }}</p>
+            </div>
+            <StatusBadge v-if="customer.territory" tone="neutral" :dot="false">{{ customer.territory }}</StatusBadge>
+            <AppIcon name="chevron-right" :size="18" class="text-subtle" />
           </div>
-          <span class="text-xs bg-gray-100 px-2 py-1 rounded">{{ customer.territory }}</span>
-        </button>
-        <p v-if="!customers.length" class="text-sm text-gray-500 py-6 text-center">No customers found</p>
+        </AppCard>
       </div>
     </div>
-  </div>
+  </WorkspacePage>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import * as api from '../api/frappe';
 import type { Customer } from '../types';
 import { useSessionStore } from '../stores/session';
+import WorkspacePage from '../components/WorkspacePage.vue';
+import { AppCard, AppAlert, AppIcon, SearchBar, StatusBadge, SkeletonList, EmptyState } from '../components/ui';
 
 const router = useRouter();
 const route = useRoute();
@@ -45,7 +49,27 @@ const store = useSessionStore();
 const txt = ref('');
 const customers = ref<Customer[]>([]);
 const loading = ref(true);
-const checking = ref(false);
+
+const redirect = computed(() => route.query.redirect as string | undefined);
+const actionLabel = computed(
+  () => ({ payment: 'Collect Payment', ledger: 'Customer Ledger', return: 'Sales Return' })[redirect.value || ''] || 'New Order',
+);
+const actionHint = computed(
+  () =>
+    ({
+      payment: 'The selected customer opens the payment collection workflow.',
+      ledger: 'The selected customer opens their financial ledger.',
+      return: 'The selected customer opens the returns workflow.',
+    })[redirect.value || ''] || 'The selected customer continues to the catalog to build a new order.',
+);
+
+const initials = (name: string) =>
+  name
+    .split(' ')
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
 
 const load = async () => {
   loading.value = true;
@@ -57,38 +81,15 @@ watch(txt, () => {
   clearTimeout(timer);
   timer = window.setTimeout(load, 300);
 });
-
 let timer = window.setTimeout(load, 0);
 
 const selectCustomer = (customer: Customer) => {
   store.setCustomer(customer);
-  const redirect = route.query.redirect as string;
-  if (redirect === 'payment') {
-    router.push({ name: 'payment' });
-  } else if (redirect === 'ledger') {
-    router.push({ name: 'ledger' });
-  } else {
-    router.push({ name: 'items' });
-  }
-};
-
-const checkExisting = async (customer: Customer) => {
-  checking.value = true;
-  try {
-    const existing = await api.findDraftOrder(customer.name, store.session?.user);
-    if (existing) {
-      store.setCurrentOrder(existing.name);
-      store.setCartFromOrder(existing.items || []);
-      router.push({ name: 'items', query: { customer: customer.name, customer_name: customer.customer_name } });
-      return;
-    }
-    store.setCurrentOrder(null);
-    store.clearCart();
-    router.push({ name: 'items', query: { customer: customer.name, customer_name: customer.customer_name } });
-  } catch (_e) {
-    router.push({ name: 'items', query: { customer: customer.name, customer_name: customer.customer_name } });
-  } finally {
-    checking.value = false;
-  }
+  if (redirect.value === 'payment') router.push({ name: 'payment' });
+  else if (redirect.value === 'ledger') router.push({ name: 'ledger' });
+  else if (redirect.value === 'return') {
+    store.clearReturnCart();
+    router.push({ name: 'return-items', query: { customer: customer.name, customer_name: customer.customer_name } });
+  } else router.push({ name: 'items' });
 };
 </script>

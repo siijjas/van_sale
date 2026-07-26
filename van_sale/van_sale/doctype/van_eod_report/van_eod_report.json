@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:EOD-{YYYY}-{MM}-{DD}-{#####}",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "driver",
+  "date",
+  "total_sales",
+  "expected_cash_collection",
+  "total_expenses",
+  "declared_cash",
+  "variance",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "driver",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Driver",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_sales",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Sales"
+  },
+  {
+   "fieldname": "expected_cash_collection",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Expected Cash Collection"
+  },
+  {
+   "description": "Sum of all Van Expense Log entries for the day",
+   "fieldname": "total_expenses",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Expenses"
+  },
+  {
+   "fieldname": "declared_cash",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Declared Cash"
+  },
+  {
+   "description": "Declared Cash minus Expected Cash Collection",
+   "fieldname": "variance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Variance"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-06-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Van Sale",
+ "name": "Van EOD Report",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "submit": 1,
+   "role": "Van Sales Driver"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -1,121 +1,109 @@
 <template>
-  <div class="flex flex-col h-full bg-gray-50">
-    <div class="px-4 py-3 bg-white border-b flex items-center justify-between sticky top-0">
-      <button class="text-sm text-gray-600" @click="$router.back()">Back</button>
-      <h2 class="text-base font-semibold text-gray-900">Review Order</h2>
-      <button class="text-xs text-red-600" v-if="cart.length" @click="clear">Clear</button>
-    </div>
+  <WorkspacePage back title="Review order" description="Check items and totals before confirming." width="default">
+    <template #actions>
+      <AppButton v-if="cart.length" variant="ghost" size="sm" icon="trash" @click="clear">Clear</AppButton>
+    </template>
 
-    <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-      <div v-if="!customer" class="bg-white rounded-xl p-4 shadow-sm text-sm text-gray-500">
-        Select a customer first.
-      </div>
+    <div class="space-y-4 pb-32">
+      <AppAlert v-if="!customer" tone="warning" message="Select a customer first." />
 
-      <div v-if="customer" class="bg-white p-4 rounded-xl shadow-sm border">
-        <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Customer</p>
-        <p class="font-semibold text-gray-900">{{ customer.customer_name }}</p>
-        <p class="text-xs text-gray-500">{{ customer.name }}</p>
-      </div>
+      <!-- Customer -->
+      <AppCard v-if="customer" padding="sm">
+        <div class="flex items-center gap-3">
+          <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/12 text-sm font-bold text-primary">
+            {{ initials(customer.customer_name) }}
+          </span>
+          <div class="min-w-0">
+            <p class="text-[11px] font-bold uppercase tracking-wide text-muted">Customer</p>
+            <p class="truncate font-bold text-foreground">{{ customer.customer_name }}</p>
+          </div>
+        </div>
+      </AppCard>
 
-      <div class="bg-white rounded-xl shadow-sm border" v-if="cart.length">
-        <div class="p-3 border-b text-xs font-semibold text-gray-600 uppercase">Items ({{ cart.length }})</div>
-        <div class="divide-y">
-          <div v-for="line in cart" :key="line.item.item_code" class="p-3 flex items-center justify-between">
-            <div>
-              <p class="font-semibold text-gray-900">{{ line.item.item_name }}</p>
-              <p class="text-xs text-gray-500">{{ line.item.item_code }}</p>
-              <div class="flex items-center gap-1 mt-1">
-                <span class="text-xs text-gray-500">{{ currency }}</span>
-                <button 
-                  class="text-xs font-semibold text-blue-600 border-b border-blue-200 hover:border-blue-600 px-1"
-                  @click="openEdit(line)"
-                >
-                  {{ itemRate(line).toFixed(2) }}
-                </button>
-                <span class="text-xs text-gray-500">/ {{ line.item.stock_uom }}</span>
-              </div>
+      <!-- Items -->
+      <AppCard v-if="cart.length" padding="none">
+        <div class="flex items-center justify-between border-b border-line px-4 py-3">
+          <span class="text-xs font-bold uppercase tracking-wider text-muted">Items ({{ cart.length }})</span>
+        </div>
+        <div class="divide-y divide-line">
+          <div v-for="line in cart" :key="line.item.item_code" class="flex items-center justify-between gap-3 p-4">
+            <div class="min-w-0 flex-1">
+              <p class="font-semibold leading-tight text-foreground">{{ line.item.item_name }}</p>
+              <p class="mt-0.5 text-xs text-muted">{{ line.item.item_code }}</p>
+              <button
+                type="button"
+                class="mt-2 inline-flex w-fit items-center gap-1.5 rounded-xl border border-line bg-card-muted px-2.5 py-1.5 text-xs font-semibold transition"
+                :class="allowRateChange ? 'text-foreground hover:border-primary' : 'cursor-default text-muted opacity-70'"
+                @click="openEdit(line)"
+              >
+                <span class="tnum">{{ currency }} {{ itemRate(line).toFixed(2) }}</span>
+                <span class="text-subtle">/ {{ line.item.stock_uom }}</span>
+                <AppIcon v-if="allowRateChange" name="edit" :size="13" class="ml-0.5 text-primary" />
+              </button>
             </div>
-            <div class="flex items-center gap-2">
-              <button class="px-3 py-1 bg-gray-100 rounded-lg" @click="update(line.item.item_code, -1)">-</button>
-              <span class="w-8 text-center font-semibold">{{ line.qty }}</span>
-              <button class="px-3 py-1 bg-blue-600 text-white rounded-lg" @click="update(line.item.item_code, 1)">+</button>
-            </div>
+            <QtyStepper :model-value="line.qty" @change="(d: number) => update(line.item.item_code, d)" />
           </div>
         </div>
-      </div>
+      </AppCard>
 
-      <div v-else class="bg-white rounded-xl p-4 text-center text-sm text-gray-500 shadow-sm">
-        Cart is empty.
-      </div>
+      <EmptyState v-else-if="customer" icon="cart" title="Cart is empty" description="Add products from the catalog to continue.">
+        <template #action>
+          <AppButton variant="secondary" icon="package" @click="$router.push({ name: 'items' })">Browse catalog</AppButton>
+        </template>
+      </EmptyState>
 
-      <div class="bg-white p-4 rounded-xl shadow-sm border space-y-2">
-        <div class="flex justify-between text-sm text-gray-600">
-          <span>Net Total</span>
-          <span>{{ currency }} {{ net.toFixed(2) }}</span>
+      <!-- Totals -->
+      <AppCard v-if="cart.length">
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between text-sm font-medium text-muted">
+            <span>Subtotal</span><span class="tnum">{{ currency }} {{ net.toFixed(2) }}</span>
+          </div>
+          <div v-if="tax" class="flex items-center justify-between text-sm font-medium text-muted">
+            <span>Tax</span><span class="tnum">{{ currency }} {{ tax.toFixed(2) }}</span>
+          </div>
+          <div class="flex items-center justify-between border-t border-line pt-3 text-lg font-bold text-foreground">
+            <span>Total</span><span class="tnum">{{ currency }} {{ grand.toFixed(2) }}</span>
+          </div>
         </div>
-        <div v-if="tax" class="flex justify-between text-sm text-gray-600">
-          <span>Tax</span>
-          <span>{{ currency }} {{ tax.toFixed(2) }}</span>
-        </div>
-        <div class="flex justify-between text-lg font-semibold text-gray-900" :class="tax ? 'border-t pt-2' : ''">
-          <span>Grand Total</span>
-          <span>{{ currency }} {{ grand.toFixed(2) }}</span>
-        </div>
-      </div>
+      </AppCard>
+
+      <AppAlert v-if="submitError" tone="danger" :message="submitError" />
     </div>
 
-    <div class="p-4 bg-white border-t">
-      <button
-        class="w-full bg-blue-700 text-white rounded-lg py-3 font-semibold disabled:opacity-50"
-        :disabled="submitting || !customer || !cart.length"
-        @click="submit"
-      >
-        {{ submitting ? 'Submitting...' : 'Confirm Order' }}
-      </button>
-    </div>
+    <!-- Confirm -->
+    <StickyBar v-if="cart.length">
+      <AppButton size="lg" block :loading="submitting" :disabled="!customer" trailing-icon="check" @click="submit">
+        {{ submitting ? 'Processing…' : `Confirm order • ${currency} ${grand.toFixed(2)}` }}
+      </AppButton>
+    </StickyBar>
 
-    <div v-if="editingItem" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click="closeEdit">
-      <div class="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden" @click.stop>
-        <div class="px-4 py-3 border-b flex justify-between items-center bg-gray-50">
-          <h3 class="font-semibold text-gray-900">Edit Price</h3>
-          <button class="text-gray-500 hover:text-gray-700" @click="closeEdit">✕</button>
+    <!-- Edit price sheet -->
+    <BottomSheet v-model="sheetOpen" title="Edit unit price">
+      <div v-if="editingItem" class="space-y-4">
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-wide text-muted">Item</p>
+          <p class="mt-0.5 font-semibold text-foreground">{{ editingItem.item.item_name }}</p>
         </div>
-        <div class="p-4 space-y-4">
-          <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Item</label>
-            <p class="text-sm text-gray-900">{{ editingItem.item.item_name }}</p>
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">New Price ({{ currency }})</label>
-            <input
-              ref="priceInput"
-              type="number"
-              v-model.number="editPrice"
-              class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              placeholder="Enter new price"
-              @keyup.enter="savePrice"
-            />
-          </div>
-          <div class="flex gap-2 pt-2">
-            <button class="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium" @click="closeEdit">
-              Cancel
-            </button>
-            <button class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium" @click="savePrice">
-              Update
-            </button>
-          </div>
+        <FormField :label="`Override price (${currency})`">
+          <BaseInput v-model="editPrice" type="number" inputmode="decimal" @keyup.enter="savePrice" />
+        </FormField>
+        <div class="flex gap-3">
+          <AppButton variant="subtle" block @click="sheetOpen = false">Cancel</AppButton>
+          <AppButton block @click="savePrice">Apply</AppButton>
         </div>
       </div>
-    </div>
-  </div>
+    </BottomSheet>
+  </WorkspacePage>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, nextTick } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSessionStore } from '../stores/session';
 import * as api from '../api/frappe';
 import type { CartLine, SalesOrder } from '../types';
+import WorkspacePage from '../components/WorkspacePage.vue';
+import { AppCard, AppButton, AppAlert, AppIcon, QtyStepper, EmptyState, StickyBar, BottomSheet, FormField, BaseInput } from '../components/ui';
 
 const store = useSessionStore();
 const router = useRouter();
@@ -126,41 +114,33 @@ const existingOrder = computed(() => store.currentOrderName);
 const net = computed(() => store.cartTotal);
 const orderDetail = ref<SalesOrder | null>(null);
 const currency = computed(() => store.currencyDisplay);
+const allowRateChange = computed(() => store.driverConfig?.allow_rate_change !== false);
 const tax = computed(() => {
   const t = orderDetail.value?.total_taxes_and_charges;
   return t && t > 0 ? t : 0;
 });
 const grand = computed(() => net.value + tax.value);
 const submitting = ref(false);
+const submitError = ref('');
 
-// Edit Price State
+const sheetOpen = ref(false);
 const editingItem = ref<CartLine | null>(null);
 const editPrice = ref<number>(0);
-const priceInput = ref<HTMLInputElement | null>(null);
+
+const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 const openEdit = (line: CartLine) => {
+  if (!allowRateChange.value) return;
   editingItem.value = line;
   editPrice.value = itemRate(line);
-  nextTick(() => {
-    priceInput.value?.focus();
-    priceInput.value?.select();
-  });
+  sheetOpen.value = true;
 };
-
-const closeEdit = () => {
-  editingItem.value = null;
-  editPrice.value = 0;
-};
-
 const savePrice = () => {
-  if (editingItem.value) {
-    store.updateRate(editingItem.value.item.item_code, editPrice.value);
-    closeEdit();
-  }
+  if (editingItem.value) store.updateRate(editingItem.value.item.item_code, Number(editPrice.value));
+  sheetOpen.value = false;
 };
 
 const update = (code: string, delta: number) => store.updateQty(code, delta);
-const updateRate = (code: string, newRate: number) => store.updateRate(code, newRate);
 const clear = () => store.clearCart();
 const itemRate = (line: CartLine) => line.rate ?? line.item.price_list_rate ?? line.item.standard_rate ?? 0;
 
@@ -177,6 +157,7 @@ onMounted(async () => {
 const submit = async () => {
   if (!customer.value || !cart.value.length) return;
   submitting.value = true;
+  submitError.value = '';
   try {
     const today = new Date().toISOString().slice(0, 10);
     const itemsPayload = cart.value.map((line) => ({
@@ -189,22 +170,20 @@ const submit = async () => {
       stock_uom: line.item.stock_uom,
       price_list_rate: itemRate(line),
     }));
+    let orderName: string;
     if (existingOrder.value) {
-      await api.updateSalesOrder(existingOrder.value, {
-        customer: customer.value.name,
-        items: itemsPayload,
-      });
+      await api.updateSalesOrder(existingOrder.value, { customer: customer.value.name, items: itemsPayload });
+      orderName = existingOrder.value;
     } else {
-      const res = await api.createSalesOrder({
-        customer: customer.value.name,
-        items: itemsPayload,
-      });
+      const res = await api.createSalesOrder({ customer: customer.value.name, items: itemsPayload });
       store.setCurrentOrder(res.name);
+      orderName = res.name;
     }
+    await api.submitSalesOrder(orderName);
     store.clearCart();
     router.push({ name: 'history' });
   } catch (e: any) {
-    alert(e?.message || 'Failed to submit order');
+    submitError.value = e?.message || 'Failed to submit order';
   } finally {
     submitting.value = false;
   }

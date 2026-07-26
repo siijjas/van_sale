@@ -1,309 +1,204 @@
 <template>
-  <div class="flex flex-col h-full bg-gray-50">
-    <!-- Header -->
-    <div class="px-4 py-3 bg-white border-b flex items-center gap-2 sticky top-0 z-10 justify-between">
-      <div class="flex items-center gap-2">
-        <button class="text-sm text-gray-600" @click="$router.back()">Back</button>
-        <h2 class="text-base font-semibold text-gray-900">New Payment</h2>
-      </div>
-      <div class="flex items-center gap-3">
-        <button class="text-sm text-gray-600" @click="$router.push({ name: 'dashboard' })">Dashboard</button>
-        <button class="text-sm text-blue-600" @click="reload">Refresh</button>
-      </div>
-    </div>
+  <WorkspacePage back eyebrow="Collect payment" title="New payment" description="Choose allocation behaviour and post a payment entry." width="default">
+    <template #actions>
+      <AppButton variant="secondary" size="sm" icon="refresh" @click="reload">Refresh</AppButton>
+    </template>
 
-    <div class="flex-1 overflow-y-auto px-4 py-4 space-y-6 pb-24">
-      <!-- Customer Section -->
-      <div class="space-y-2">
-        <label class="block text-xs font-semibold text-gray-600 uppercase">Customer</label>
-        <div v-if="customer" class="bg-white p-3 rounded-xl border flex justify-between items-center shadow-sm">
-          <div>
-            <p class="font-semibold text-gray-900">{{ customer.customer_name }}</p>
-            <p class="text-xs text-gray-500">{{ customer.name }}</p>
+    <div class="space-y-5 pb-28">
+      <!-- Customer -->
+      <AppCard v-if="customer" padding="sm">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-3">
+            <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/12 text-sm font-bold text-primary">
+              {{ initials(customer.customer_name) }}
+            </span>
+            <div class="min-w-0">
+              <p class="truncate font-bold text-foreground">{{ customer.customer_name }}</p>
+              <p class="truncate text-xs text-muted">{{ customer.name }}</p>
+            </div>
           </div>
-          <button class="text-blue-600 text-sm font-medium" @click="changeCustomer">Change</button>
+          <button class="text-sm font-semibold text-primary" @click="changeCustomer">Change</button>
         </div>
-        <button
-          v-else
-          class="w-full bg-white border-2 border-dashed border-gray-300 rounded-xl p-4 text-gray-500 font-medium hover:border-blue-500 hover:text-blue-500 transition-colors"
-          @click="$router.push({ name: 'customers', query: { redirect: 'payment' } })"
-        >
-          + Select Customer
-        </button>
-      </div>
+      </AppCard>
+      <AppButton v-else variant="secondary" block icon="plus" @click="$router.push({ name: 'customers', query: { redirect: 'payment' } })">
+        Select customer
+      </AppButton>
 
-      <div v-if="customer" class="space-y-6">
-        <!-- Customer Summary -->
-        <div v-if="customerSummary" class="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm space-y-2">
-           <div class="flex justify-between items-center">
-             <span class="text-blue-800 font-medium">Outstanding Balance</span>
-             <span class="font-bold text-blue-900">{{ currency }} {{ (customerSummary.outstanding_balance || 0).toFixed(2) }}</span>
-           </div>
-           
-           <div v-if="customerSummary.last_invoice" class="flex justify-between items-center border-t border-blue-100 pt-2">
-             <span class="text-blue-700">Last Invoice</span>
-             <div class="text-right">
-               <span class="font-medium text-blue-900 block">{{ customerSummary.last_invoice.name }}</span>
-               <span class="text-xs text-blue-600 block">{{ customerSummary.last_invoice.posting_date }} • {{ currency }} {{ (customerSummary.last_invoice.grand_total || 0).toFixed(2) }}</span>
-             </div>
-           </div>
-           
-           <div v-if="customerSummary.last_payment" class="flex justify-between items-center border-t border-blue-100 pt-2">
-             <span class="text-blue-700">Last Payment</span>
-             <div class="text-right">
-               <span class="font-medium text-blue-900 block">{{ currency }} {{ (customerSummary.last_payment.paid_amount || 0).toFixed(2) }}</span>
-               <span class="text-xs text-blue-600 block">{{ customerSummary.last_payment.posting_date }}</span>
-             </div>
-           </div>
-        </div>
+      <div v-if="customer" class="space-y-5">
+        <!-- Customer summary -->
+        <AppCard v-if="customerSummary" class="bg-primary/[0.07] border-primary/20" padding="sm">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-muted">Outstanding balance</span>
+            <span class="tnum text-lg font-bold text-foreground">{{ currency }} {{ (customerSummary.outstanding_balance || 0).toFixed(2) }}</span>
+          </div>
+          <div v-if="customerSummary.last_invoice" class="mt-2 flex items-center justify-between border-t border-line pt-2 text-sm">
+            <span class="text-muted">Last invoice</span>
+            <span class="text-right">
+              <span class="block font-semibold text-foreground">{{ customerSummary.last_invoice.name }}</span>
+              <span class="tnum block text-xs text-muted">{{ customerSummary.last_invoice.posting_date }} • {{ currency }} {{ (customerSummary.last_invoice.grand_total || 0).toFixed(2) }}</span>
+            </span>
+          </div>
+          <div v-if="customerSummary.last_payment" class="mt-2 flex items-center justify-between border-t border-line pt-2 text-sm">
+            <span class="text-muted">Last payment</span>
+            <span class="text-right">
+              <span class="tnum block font-semibold text-foreground">{{ currency }} {{ (customerSummary.last_payment.paid_amount || 0).toFixed(2) }}</span>
+              <span class="block text-xs text-muted">{{ customerSummary.last_payment.posting_date }}</span>
+            </span>
+          </div>
+        </AppCard>
 
-        <!-- Payment Details -->
-        <div class="space-y-4">
-          <div>
-             <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Mode of Payment</label>
-             <select v-model="modeOfPayment" class="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm">
-               <option value="" disabled>Select Mode</option>
-               <option v-for="mode in paymentModes" :key="mode.name" :value="mode.name">{{ mode.name }}</option>
-             </select>
-          </div>
-          
-          <div>
-            <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Paid Amount ({{ currency }})</label>
-            <input
-              type="number"
-              v-model.number="paidAmount"
-              @input="onPaidAmountChange"
-              class="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-lg font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-              placeholder="0.00"
-            />
-          </div>
+        <!-- Amount + mode -->
+        <div class="grid gap-4 sm:grid-cols-2">
+          <FormField label="Paid amount">
+            <BaseInput v-model="paidAmount" type="number" inputmode="decimal" :prefix="currency" placeholder="0.00" @update:modelValue="onPaidAmountChange" />
+          </FormField>
+          <FormField label="Mode of payment">
+            <BaseSelect v-model="modeOfPayment" placeholder="Select mode">
+              <option v-for="mode in paymentModes" :key="mode.name" :value="mode.name">{{ mode.name }}</option>
+            </BaseSelect>
+          </FormField>
         </div>
 
-        <!-- Allocation Mode -->
+        <!-- Allocation mode -->
         <div class="space-y-2">
-          <label class="block text-xs font-semibold text-gray-600 uppercase">Allocation Type</label>
-          <div class="grid grid-cols-3 gap-2">
-            <button
-              @click="allocationMode = 'auto'"
-              class="px-3 py-2 rounded-lg text-sm font-medium transition-all"
-              :class="allocationMode === 'auto' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200'"
-            >
-              Auto (FIFO)
-            </button>
-            <button
-              @click="allocationMode = 'manual'"
-              class="px-3 py-2 rounded-lg text-sm font-medium transition-all"
-              :class="allocationMode === 'manual' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200'"
-            >
-              Manual
-            </button>
-            <button
-              @click="allocationMode = 'advance'"
-              class="px-3 py-2 rounded-lg text-sm font-medium transition-all"
-              :class="allocationMode === 'advance' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200'"
-            >
-              Advance
-            </button>
-          </div>
-          <p class="text-xs text-gray-500 mt-1">
-            <span v-if="allocationMode === 'auto'">Automatically allocate to oldest invoices first</span>
-            <span v-else-if="allocationMode === 'manual'">Manually select and allocate to specific invoices</span>
-            <span v-else>Record as advance payment (not allocated to invoices)</span>
+          <label class="text-xs font-bold uppercase tracking-wider text-muted">Allocation type</label>
+          <SegmentedControl
+            :model-value="allocationMode"
+            :options="[{ value: 'auto', label: 'Auto FIFO' }, { value: 'manual', label: 'Manual' }, { value: 'advance', label: 'Advance' }]"
+            @update:modelValue="(v: string) => (allocationMode = v as any)"
+          />
+          <p class="text-xs text-muted">
+            {{ allocationMode === 'auto' ? 'Allocates to the oldest invoices first.' : allocationMode === 'manual' ? 'Pick and allocate specific invoices.' : 'Recorded as an advance — not allocated to invoices.' }}
           </p>
         </div>
 
-        <!-- Outstanding Invoices (only for auto and manual modes) -->
+        <!-- Outstanding invoices -->
         <div v-if="allocationMode !== 'advance'" class="space-y-2">
-           <div class="flex justify-between items-center">
-             <label class="block text-xs font-semibold text-gray-600 uppercase">Outstanding Invoices</label>
-             <span class="text-xs font-medium text-gray-500">Unallocated: {{ currency }} {{ unallocatedAmount.toFixed(2) }}</span>
-           </div>
-           
-           <!-- Search Input for Manual Mode -->
-           <div v-if="allocationMode === 'manual' && invoices.length > 0">
-             <input
-               type="text"
-               v-model="invoiceSearchQuery"
-               placeholder="Search by invoice number..."
-               class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-             />
-           </div>
-           
-           <div v-if="loadingInvoices" class="space-y-2">
-             <div class="h-16 bg-white rounded-xl animate-pulse" />
-             <div class="h-16 bg-white rounded-xl animate-pulse" />
-           </div>
-           
-           <div v-else-if="invoices.length === 0" class="bg-gray-100 rounded-xl p-4 text-center text-sm text-gray-500">
-             No outstanding invoices found.
-           </div>
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold uppercase tracking-wider text-muted">Outstanding invoices</label>
+            <span class="tnum text-xs font-medium" :class="unallocatedAmount < 0 ? 'text-danger' : 'text-muted'">
+              Unallocated: {{ currency }} {{ unallocatedAmount.toFixed(2) }}
+            </span>
+          </div>
 
-           <div v-else class="space-y-2">
-             <div
-               v-for="inv in filteredInvoices"
-               :key="inv.name"
-               class="bg-white p-3 rounded-xl border border-gray-200 transition-all shadow-sm"
-               :class="inv.checked ? 'border-blue-500 ring-1 ring-blue-500' : ''"
-               @click="allocationMode === 'manual' ? toggleInvoice(inv) : null"
-             >
-               <div class="flex items-start gap-3">
-                 <div v-if="allocationMode === 'manual'" class="pt-1">
-                   <div 
-                     class="w-5 h-5 rounded border flex items-center justify-center transition-colors"
-                     :class="inv.checked ? 'bg-blue-600 border-blue-600' : 'border-gray-300'"
-                   >
-                     <svg v-if="inv.checked" class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
-                   </div>
-                 </div>
-                 <div class="flex-1">
-                    <div class="flex justify-between items-start mb-2">
-                       <div>
-                         <p class="font-semibold text-gray-900">{{ inv.name }}</p>
-                         <p class="text-xs text-gray-500">{{ inv.posting_date }}</p>
-                       </div>
+          <SearchBar v-if="allocationMode === 'manual' && invoices.length" v-model="invoiceSearchQuery" placeholder="Search invoice number…" />
+
+          <SkeletonList v-if="loadingInvoices" :rows="2" height="4rem" />
+          <EmptyState v-else-if="!invoices.length" icon="file-text" title="No outstanding invoices" description="This customer has nothing pending." />
+
+          <div v-else class="space-y-2">
+            <div
+              v-for="inv in filteredInvoices"
+              :key="inv.name"
+              class="rounded-2xl border bg-card p-3 shadow-card transition"
+              :class="inv.checked ? 'border-primary ring-1 ring-primary/40' : 'border-line'"
+              @click="allocationMode === 'manual' ? toggleInvoice(inv) : null"
+            >
+              <div class="flex items-start gap-3">
+                <span
+                  v-if="allocationMode === 'manual'"
+                  class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition"
+                  :class="inv.checked ? 'border-primary bg-primary text-primary-fg' : 'border-line-strong'"
+                >
+                  <AppIcon v-if="inv.checked" name="check" :size="14" :stroke-width="3" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-start justify-between">
+                    <div>
+                      <p class="font-semibold text-foreground">{{ inv.name }}</p>
+                      <p class="text-xs text-muted">{{ inv.posting_date }}</p>
                     </div>
-
-                    <div class="flex justify-between items-center text-sm bg-gray-50 p-2 rounded-lg">
-                       <div>
-                         <p class="text-[10px] uppercase text-gray-500 font-semibold mb-0.5">Invoice Amt</p>
-                         <p class="font-medium text-gray-900">{{ currency }} {{ inv.grand_total.toFixed(2) }}</p>
-                       </div>
-                       <div class="text-right">
-                         <p class="text-[10px] uppercase text-gray-500 font-semibold mb-0.5">Pending</p>
-                         <p class="font-bold text-blue-600">{{ currency }} {{ inv.outstanding_amount.toFixed(2) }}</p>
-                       </div>
+                  </div>
+                  <div class="mt-2 flex items-center justify-between rounded-xl bg-card-muted p-2.5 text-sm">
+                    <div>
+                      <p class="text-[10px] font-bold uppercase tracking-wide text-muted">Invoice</p>
+                      <p class="tnum font-medium text-foreground">{{ currency }} {{ inv.grand_total.toFixed(2) }}</p>
                     </div>
-                   
-                   <div v-if="inv.checked && inv.allocated_amount > 0" class="mt-2 pt-2 border-t">
-                     <div class="flex items-center justify-between">
-                       <label class="text-xs font-medium text-gray-600">Allocated</label>
-                       <div class="flex items-center gap-2">
-                         <input
-                           v-if="allocationMode === 'manual'"
-                           type="number"
-                           v-model.number="inv.allocated_amount"
-                           class="w-24 text-right text-sm border rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 outline-none"
-                           @click.stop
-                           @input="validateAllocation(inv)"
-                         />
-                         <span v-else class="text-sm font-semibold text-blue-600">{{ currency }} {{ inv.allocated_amount.toFixed(2) }}</span>
-                       </div>
-                     </div>
-                   </div>
-                 </div>
-               </div>
-             </div>
-           </div>
-        </div>
-
-        <!-- Advance Payment - Sales Order Selection -->
-        <div v-if="allocationMode === 'advance'" class="space-y-3">
-          <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <div class="flex items-start gap-3">
-              <div class="text-2xl">ℹ️</div>
-              <div>
-                <p class="text-sm font-semibold text-blue-900">Advance Payment</p>
-                <p class="text-xs text-blue-700 mt-1">Optionally link this payment to a Sales Order, or leave unlinked for general advance payment.</p>
+                    <div class="text-right">
+                      <p class="text-[10px] font-bold uppercase tracking-wide text-muted">Pending</p>
+                      <p class="tnum font-bold text-primary">{{ currency }} {{ inv.outstanding_amount.toFixed(2) }}</p>
+                    </div>
+                  </div>
+                  <div v-if="inv.checked && inv.allocated_amount > 0" class="mt-2 flex items-center justify-between border-t border-line pt-2">
+                    <label class="text-xs font-medium text-muted">Allocated</label>
+                    <input
+                      v-if="allocationMode === 'manual'"
+                      type="number"
+                      v-model.number="inv.allocated_amount"
+                      class="tnum w-28 rounded-xl border border-line bg-input px-3 py-1.5 text-right text-sm font-semibold text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                      @click.stop
+                      @input="validateAllocation(inv)"
+                    />
+                    <span v-else class="tnum text-sm font-bold text-primary">{{ currency }} {{ inv.allocated_amount.toFixed(2) }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+        </div>
 
-          <div class="space-y-2">
-            <label class="block text-xs font-semibold text-gray-600 uppercase">Link to Sales Order (Optional)</label>
-            
-            <!-- Search Input for Sales Orders -->
-            <div v-if="!loadingSalesOrders && salesOrders.length > 0">
-              <input
-                type="text"
-                v-model="salesOrderSearchQuery"
-                placeholder="Search by order number..."
-                class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-              />
-            </div>
-            
-            <div v-if="loadingSalesOrders" class="space-y-2">
-              <div class="h-16 bg-white rounded-xl animate-pulse" />
-              <div class="h-16 bg-white rounded-xl animate-pulse" />
-            </div>
-            
-            <div v-else-if="salesOrders.length === 0" class="bg-gray-100 rounded-xl p-4 text-center text-sm text-gray-500">
-              No sales orders found for this customer.
-            </div>
+        <!-- Advance: link sales order -->
+        <div v-else class="space-y-3">
+          <AppAlert tone="info" title="Advance payment" message="Optionally link to a Sales Order, or leave unlinked for a general advance." />
+          <label class="text-xs font-bold uppercase tracking-wider text-muted">Link to sales order (optional)</label>
+          <SearchBar v-if="!loadingSalesOrders && salesOrders.length" v-model="salesOrderSearchQuery" placeholder="Search order number…" />
 
-            <div v-else class="space-y-2">
-              <button
-                @click="selectedSalesOrder = null"
-                class="w-full bg-white p-3 rounded-xl border transition-all text-left"
-                :class="selectedSalesOrder === null ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'"
-              >
-                <div class="flex items-center gap-3">
-                  <div 
-                    class="w-5 h-5 rounded-full border flex items-center justify-center transition-colors"
-                    :class="selectedSalesOrder === null ? 'bg-blue-600 border-blue-600' : 'border-gray-300'"
-                  >
-                    <div v-if="selectedSalesOrder === null" class="w-2 h-2 bg-white rounded-full"></div>
+          <SkeletonList v-if="loadingSalesOrders" :rows="2" height="4rem" />
+          <EmptyState v-else-if="!salesOrders.length" icon="receipt" title="No sales orders" description="None found for this customer." />
+
+          <div v-else class="space-y-2">
+            <button
+              class="flex w-full items-center gap-3 rounded-2xl border bg-card p-3 text-left transition"
+              :class="selectedSalesOrder === null ? 'border-primary ring-1 ring-primary/40' : 'border-line'"
+              @click="selectedSalesOrder = null"
+            >
+              <span class="flex h-5 w-5 items-center justify-center rounded-full border" :class="selectedSalesOrder === null ? 'border-primary' : 'border-line-strong'">
+                <span v-if="selectedSalesOrder === null" class="h-2 w-2 rounded-full bg-primary" />
+              </span>
+              <div>
+                <p class="font-semibold text-foreground">No sales order</p>
+                <p class="text-xs text-muted">General advance payment</p>
+              </div>
+            </button>
+            <button
+              v-for="so in filteredSalesOrders"
+              :key="so.name"
+              class="flex w-full items-start gap-3 rounded-2xl border bg-card p-3 text-left transition"
+              :class="selectedSalesOrder === so.name ? 'border-primary ring-1 ring-primary/40' : 'border-line'"
+              @click="selectedSalesOrder = so.name"
+            >
+              <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border" :class="selectedSalesOrder === so.name ? 'border-primary' : 'border-line-strong'">
+                <span v-if="selectedSalesOrder === so.name" class="h-2 w-2 rounded-full bg-primary" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <p class="font-semibold text-foreground">{{ so.name }}</p>
+                <p class="text-xs text-muted">{{ so.transaction_date }}</p>
+                <div class="mt-2 flex items-center justify-between rounded-xl bg-card-muted p-2.5 text-sm">
+                  <div>
+                    <p class="text-[10px] font-bold uppercase tracking-wide text-muted">Order</p>
+                    <p class="tnum font-medium text-foreground">{{ currency }} {{ so.grand_total.toFixed(2) }}</p>
                   </div>
-                  <div class="flex-1">
-                    <p class="font-semibold text-gray-900">No Sales Order</p>
-                    <p class="text-xs text-gray-500">General advance payment</p>
-                  </div>
-                </div>
-              </button>
-
-              <div
-                v-for="so in filteredSalesOrders"
-                :key="so.name"
-                @click="selectedSalesOrder = so.name"
-                class="bg-white p-3 rounded-xl border transition-all cursor-pointer"
-                :class="selectedSalesOrder === so.name ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'"
-              >
-                <div class="flex items-start gap-3">
-                  <div class="pt-1">
-                    <div 
-                      class="w-5 h-5 rounded-full border flex items-center justify-center transition-colors"
-                      :class="selectedSalesOrder === so.name ? 'bg-blue-600 border-blue-600' : 'border-gray-300'"
-                    >
-                      <div v-if="selectedSalesOrder === so.name" class="w-2 h-2 bg-white rounded-full"></div>
-                    </div>
-                  </div>
-                  <div class="flex-1">
-                    <div class="flex justify-between items-start mb-2">
-                       <div>
-                         <p class="font-semibold text-gray-900">{{ so.name }}</p>
-                         <p class="text-xs text-gray-500">{{ so.transaction_date }}</p>
-                       </div>
-                    </div>
-
-                    <div class="flex justify-between items-center text-sm bg-gray-50 p-2 rounded-lg">
-                       <div>
-                         <p class="text-[10px] uppercase text-gray-500 font-semibold mb-0.5">Order Amt</p>
-                         <p class="font-medium text-gray-900">{{ currency }} {{ so.grand_total.toFixed(2) }}</p>
-                       </div>
-                       <div class="text-right">
-                         <p class="text-[10px] uppercase text-gray-500 font-semibold mb-0.5">Pending</p>
-                         <p class="font-bold text-blue-600">{{ currency }} {{ (so.grand_total - (so.advance_paid || 0)).toFixed(2) }}</p>
-                       </div>
-                    </div>
+                  <div class="text-right">
+                    <p class="text-[10px] font-bold uppercase tracking-wide text-muted">Pending</p>
+                    <p class="tnum font-bold text-primary">{{ currency }} {{ (so.grand_total - (so.advance_paid || 0)).toFixed(2) }}</p>
                   </div>
                 </div>
               </div>
-            </div>
+            </button>
           </div>
         </div>
       </div>
+
+      <AppAlert v-if="submitError" tone="danger" :message="submitError" />
+      <AppAlert v-if="successMsg" tone="success" :message="successMsg" />
     </div>
 
-    <!-- Footer Actions -->
-    <div class="p-4 bg-white border-t sticky bottom-0 z-10 shadow-lg">
-      <button
-        class="w-full bg-blue-700 text-white rounded-lg py-3 font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-[0.99] transition-transform"
-        :disabled="submitting || !isValid"
-        @click="submit"
-      >
-        {{ submitting ? 'Submitting...' : 'Create Payment' }}
-      </button>
-    </div>
-  </div>
+    <StickyBar>
+      <AppButton size="lg" block icon="check" :disabled="!isValid" :loading="submitting" @click="submit">
+        {{ submitting ? 'Submitting…' : `Confirm payment${paidAmount ? ` • ${currency} ${Number(paidAmount).toFixed(2)}` : ''}` }}
+      </AppButton>
+    </StickyBar>
+  </WorkspacePage>
 </template>
 
 <script setup lang="ts">
@@ -312,6 +207,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useSessionStore } from '../stores/session';
 import * as api from '../api/frappe';
 import type { OutstandingInvoice, PaymentMode, PaymentReference, SalesOrderSummary, CustomerSummary } from '../types';
+import WorkspacePage from '../components/WorkspacePage.vue';
+import { AppCard, AppButton, AppAlert, AppIcon, FormField, BaseInput, BaseSelect, SearchBar, SegmentedControl, SkeletonList, EmptyState, StickyBar } from '../components/ui';
 
 const store = useSessionStore();
 const route = useRoute();
@@ -329,6 +226,8 @@ const paymentModes = ref<PaymentMode[]>([]);
 const loadingInvoices = ref(false);
 const loadingSalesOrders = ref(false);
 const submitting = ref(false);
+const submitError = ref('');
+const successMsg = ref('');
 const allocationMode = ref<'auto' | 'manual' | 'advance'>('auto');
 const selectedSalesOrder = ref<string | null>(null);
 const invoiceSearchQuery = ref('');
@@ -337,20 +236,18 @@ const salesOrderSearchQuery = ref('');
 const customerParam = route.query.customer as string | undefined;
 const customerNameParam = route.query.customer_name as string | undefined;
 
+const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+
 onMounted(async () => {
   if (customerParam && customerNameParam) {
     store.setCustomer({ name: customerParam, customer_name: customerNameParam, customer_group: '', territory: '' });
   }
-  
   try {
     paymentModes.value = await api.getPaymentModes();
-    if (paymentModes.value.length) {
-      modeOfPayment.value = paymentModes.value[0].name;
-    }
+    if (paymentModes.value.length) modeOfPayment.value = paymentModes.value[0].name;
   } catch (e) {
     console.error('Failed to load payment modes', e);
   }
-  
   if (customer.value) {
     loadInvoices();
     loadSalesOrders();
@@ -360,11 +257,7 @@ onMounted(async () => {
 
 const reload = async () => {
   if (!customer.value) return;
-  await Promise.all([
-    loadInvoices(),
-    loadSalesOrders(),
-    loadCustomerSummary()
-  ]);
+  await Promise.all([loadInvoices(), loadSalesOrders(), loadCustomerSummary()]);
 };
 
 const loadInvoices = async () => {
@@ -372,11 +265,7 @@ const loadInvoices = async () => {
   loadingInvoices.value = true;
   try {
     const data = await api.getOutstandingInvoices(customer.value.name);
-    invoices.value = data.map(inv => ({
-      ...inv,
-      checked: false,
-      allocated_amount: 0
-    }));
+    invoices.value = data.map((inv) => ({ ...inv, checked: false, allocated_amount: 0 }));
   } catch (e) {
     console.error('Failed to load invoices', e);
   } finally {
@@ -415,29 +304,20 @@ const changeCustomer = () => {
 };
 
 const onPaidAmountChange = () => {
-  if (allocationMode.value === 'auto') {
-    autoAllocate();
-  }
+  if (allocationMode.value === 'auto') autoAllocate();
 };
 
 const autoAllocate = () => {
   if (!paidAmount.value || paidAmount.value <= 0) {
-    // Clear all allocations
-    invoices.value.forEach(inv => {
+    invoices.value.forEach((inv) => {
       inv.checked = false;
       inv.allocated_amount = 0;
     });
     return;
   }
-
-  let remaining = paidAmount.value;
-  
-  // Sort by posting date (FIFO - oldest first)
-  const sortedInvoices = [...invoices.value].sort((a, b) => 
-    new Date(a.posting_date).getTime() - new Date(b.posting_date).getTime()
-  );
-
-  sortedInvoices.forEach(inv => {
+  let remaining = Number(paidAmount.value);
+  const sortedInvoices = [...invoices.value].sort((a, b) => new Date(a.posting_date).getTime() - new Date(b.posting_date).getTime());
+  sortedInvoices.forEach((inv) => {
     if (remaining <= 0) {
       inv.checked = false;
       inv.allocated_amount = 0;
@@ -461,110 +341,71 @@ const toggleInvoice = (inv: OutstandingInvoice) => {
 };
 
 const validateAllocation = (inv: OutstandingInvoice) => {
-  if (inv.allocated_amount && inv.allocated_amount > inv.outstanding_amount) {
-    inv.allocated_amount = inv.outstanding_amount;
-  }
-  if (inv.allocated_amount && inv.allocated_amount < 0) {
-    inv.allocated_amount = 0;
-  }
-  if (inv.allocated_amount === 0) {
-    inv.checked = false;
-  }
+  if (inv.allocated_amount && inv.allocated_amount > inv.outstanding_amount) inv.allocated_amount = inv.outstanding_amount;
+  if (inv.allocated_amount && inv.allocated_amount < 0) inv.allocated_amount = 0;
+  if (inv.allocated_amount === 0) inv.checked = false;
   updatePaidAmountFromSelection();
 };
 
 const updatePaidAmountFromSelection = () => {
-  const totalAllocated = invoices.value
-    .filter(i => i.checked)
-    .reduce((sum, i) => sum + (i.allocated_amount || 0), 0);
-    
-  paidAmount.value = totalAllocated;
+  paidAmount.value = invoices.value.filter((i) => i.checked).reduce((sum, i) => sum + (i.allocated_amount || 0), 0);
 };
 
-const allocatedTotal = computed(() => {
-  return invoices.value
-    .filter(i => i.checked)
-    .reduce((sum, i) => sum + (i.allocated_amount || 0), 0);
-});
+const allocatedTotal = computed(() => invoices.value.filter((i) => i.checked).reduce((sum, i) => sum + (i.allocated_amount || 0), 0));
 
 const filteredInvoices = computed(() => {
-  if (!invoiceSearchQuery.value.trim()) {
-    return invoices.value;
-  }
+  if (!invoiceSearchQuery.value.trim()) return invoices.value;
   const query = invoiceSearchQuery.value.toLowerCase();
-  return invoices.value.filter(inv => 
-    inv.name.toLowerCase().includes(query)
-  );
+  return invoices.value.filter((inv) => inv.name.toLowerCase().includes(query));
 });
 
 const filteredSalesOrders = computed(() => {
-  if (!salesOrderSearchQuery.value.trim()) {
-    return salesOrders.value;
-  }
+  if (!salesOrderSearchQuery.value.trim()) return salesOrders.value;
   const query = salesOrderSearchQuery.value.toLowerCase();
-  return salesOrders.value.filter(so => 
-    so.name.toLowerCase().includes(query)
-  );
+  return salesOrders.value.filter((so) => so.name.toLowerCase().includes(query));
 });
 
-const unallocatedAmount = computed(() => {
-  return (paidAmount.value || 0) - allocatedTotal.value;
-});
+const unallocatedAmount = computed(() => (Number(paidAmount.value) || 0) - allocatedTotal.value);
 
 const isValid = computed(() => {
-  if (!customer.value || !modeOfPayment.value || (paidAmount.value || 0) <= 0) {
-    return false;
-  }
-  
-  // For advance payment, just need amount
-  if (allocationMode.value === 'advance') {
-    return true;
-  }
-  
-  // For auto/manual, unallocated must be >= 0
+  if (!customer.value || !modeOfPayment.value || (Number(paidAmount.value) || 0) <= 0) return false;
+  if (allocationMode.value === 'advance') return true;
   return unallocatedAmount.value >= 0;
 });
 
 const submit = async () => {
   if (!isValid.value || !customer.value) return;
-  
   submitting.value = true;
+  submitError.value = '';
+  successMsg.value = '';
   try {
-    const references: PaymentReference[] = allocationMode.value === 'advance' 
-      ? [] 
-      : invoices.value
-          .filter(i => i.checked && (i.allocated_amount || 0) > 0)
-          .map(i => ({
-            name: i.name,
-            grand_total: i.grand_total,
-            outstanding_amount: i.outstanding_amount,
-            allocated_amount: i.allocated_amount || 0
-          }));
-      
+    const references: PaymentReference[] =
+      allocationMode.value === 'advance'
+        ? []
+        : invoices.value
+            .filter((i) => i.checked && (i.allocated_amount || 0) > 0)
+            .map((i) => ({ name: i.name, grand_total: i.grand_total, outstanding_amount: i.outstanding_amount, allocated_amount: i.allocated_amount || 0 }));
+
     await api.createPaymentEntry(
       customer.value.name,
       modeOfPayment.value,
-      paidAmount.value || 0,
+      Number(paidAmount.value) || 0,
       references,
-      allocationMode.value === 'advance' ? selectedSalesOrder.value || undefined : undefined
+      allocationMode.value === 'advance' ? selectedSalesOrder.value || undefined : undefined,
     );
-    
-    alert('Payment created successfully!');
-    router.back();
+    successMsg.value = 'Payment created successfully. Returning…';
+    setTimeout(() => router.back(), 1500);
   } catch (e: any) {
-    alert(e.message || 'Failed to create payment');
+    submitError.value = e.message || 'Failed to create payment';
   } finally {
     submitting.value = false;
   }
 };
 
-// Watch allocation mode changes
 watch(allocationMode, (newMode) => {
-  if (newMode === 'auto' && paidAmount.value) {
-    autoAllocate();
-  } else if (newMode === 'advance') {
-    // Clear all allocations for advance payment
-    invoices.value.forEach(inv => {
+  if (newMode === 'auto' && paidAmount.value) autoAllocate();
+  else if (newMode === 'advance') {
+    invoices.value.forEach((inv) => {
       inv.checked = false;
       inv.allocated_amount = 0;
     });

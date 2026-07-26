@@ -1,9 +1,16 @@
 <template>
-  <div class="min-h-screen bg-gray-50 font-sans">
+  <RouterView v-if="route.meta.public" />
+  <AppShell v-else>
     <RouterView />
-  </div>
+  </AppShell>
 </template>
 
 <script setup lang="ts">
-import { RouterView } from 'vue-router';
+import { useRoute, RouterView } from 'vue-router';
+import AppShell from './components/AppShell.vue';
+import { useTheme } from './composables/useTheme';
+
+const route = useRoute();
+// Initialise the theme singleton + system-preference listener at app root.
+useTheme();
 </script>

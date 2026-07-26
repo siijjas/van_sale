@@ -1,5 +1,7 @@
-import frappe
 import os
+import re
+
+import frappe
 
 no_cache = 1
 
@@ -13,6 +15,13 @@ def get_context(context):
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             content = f.read()
+            asset_version = str(int(os.path.getmtime(file_path)))
+
+            content = re.sub(
+                r'(/assets/van_sale/frontend/assets/[^"?]+\.(?:js|css))(?!\?v=)',
+                rf'\1?v={asset_version}',
+                content,
+            )
             
             # 3. INJECT THE TOKEN into the HTML
             # We add a small script that sets window.csrf_token

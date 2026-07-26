@@ -1,6 +1,39 @@
-import type { UserSession, Customer, Item, SalesOrder, SalesOrderItem, OutstandingInvoice, PaymentReference, LedgerEntry, PaymentMode, SalesOrderSummary, CustomerSummary } from '../types';
+import type {
+  UserSession,
+  Customer,
+  Item,
+  SalesOrder,
+  SalesOrderItem,
+  OutstandingInvoice,
+  PaymentReference,
+  LedgerEntry,
+  PaymentMode,
+  SalesOrderSummary,
+  CustomerSummary,
+  DriverStockDashboard,
+  TransferItemDetail,
+  StockTransferLine,
+  DriverSetupOptions,
+  ActiveShift,
+  ShiftBalanceDetail,
+  ShiftClosingSummary,
+  PaymentReconciliationRow,
+} from '../types';
 
 let csrfTokenCache: string | undefined;
+let cachedDriverContext: UserSession | null = null;
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  AED: 'AED',
+  EUR: 'EUR',
+  GBP: 'GBP',
+  INR: '₹',
+  KWD: 'KWD',
+  OMR: 'OMR',
+  QAR: 'QAR',
+  SAR: 'SAR',
+  USD: '$',
+};
 
 const getCsrfToken = () => {
   if (csrfTokenCache) return csrfTokenCache;
@@ -35,9 +68,20 @@ const getCsrfToken = () => {
 // No network call; rely on cookie/meta/window. If unavailable, requests may fail and surface real error.
 const refreshCsrfToken = async () => getCsrfToken();
 
-const defaultHeaders = () => {
+const defaultHeaders = (): Record<string, string> => {
   const csrf = getCsrfToken();
-  return csrf ? { 'X-Frappe-CSRF-Token': csrf } : {};
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (csrf) {
+    headers['X-Frappe-CSRF-Token'] = csrf;
+  }
+  return headers;
+};
+
+const getCurrencySymbolFallback = (currency: string | null | undefined) => {
+  if (!currency) return null;
+  return CURRENCY_SYMBOLS[currency] || currency;
 };
 
 const handleResponse = async (res: Response) => {
@@ -69,6 +113,7 @@ export async function login(username: string, password: string): Promise<UserSes
   } else {
     await refreshCsrfToken();
   }
+  cachedDriverContext = null;
   return getSession();
 }
 
@@ -89,30 +134,27 @@ export async function logout(): Promise<void> {
     throw new Error(err);
   }
   csrfTokenCache = undefined;
+  cachedDriverContext = null;
   localStorage.removeItem('csrf_token');
   sessionStorage.removeItem('csrf_token');
 }
 
 export async function getSession(): Promise<UserSession> {
-  const res = await fetch('/api/method/frappe.auth.get_logged_user', {
+  if (cachedDriverContext) {
+    return cachedDriverContext;
+  }
+
+  const res = await fetch('/api/method/van_sale.van_sale.driver.get_app_context', {
     credentials: 'include',
     headers: defaultHeaders(),
   });
   const data = await handleResponse(res);
-  const user = data.message as string;
-  if (!user) {
+  const context = data.message as UserSession | undefined;
+  if (!context?.user) {
     throw new Error('No active session');
   }
-  const fullRes = await fetch(`/api/resource/User/${encodeURIComponent(user)}?fields=${encodeURIComponent('["full_name"]')}`, {
-    credentials: 'include',
-    headers: defaultHeaders(),
-  });
-  const details = await handleResponse(fullRes);
-  return {
-    user,
-    full_name: details.data?.full_name || details.message?.full_name || user,
-    sid: document.cookie,
-  };
+  cachedDriverContext = context;
+  return context;
 }
 
 export async function searchCustomers(txt: string): Promise<Customer[]> {
@@ -132,8 +174,12 @@ export async function searchCustomers(txt: string): Promise<Customer[]> {
 
 let cachedSellingPriceList: string | null = null;
 let cachedDefaultCompany: string | null = null;
-let cachedCompanyCurrency: string | null = null;
+const cachedCompanyCurrency: Record<string, string> = {};
 let cachedDefaultWarehouse: string | null = null;
+
+export async function getDriverContext(): Promise<UserSession> {
+  return getSession();
+}
 
 async function getSellingPriceList(): Promise<string | null> {
   if (cachedSellingPriceList !== null) return cachedSellingPriceList;
@@ -154,6 +200,11 @@ async function getSellingPriceList(): Promise<string | null> {
 
 async function getDefaultCompany(): Promise<string | null> {
   if (cachedDefaultCompany !== null) return cachedDefaultCompany;
+  const context = await getSession().catch(() => null);
+  if (context?.driver_config?.company) {
+    cachedDefaultCompany = context.driver_config.company;
+    return cachedDefaultCompany;
+  }
   try {
     const res = await fetch('/api/resource/Global Defaults/Global Defaults', {
       method: 'GET',
@@ -172,7 +223,7 @@ async function getDefaultCompany(): Promise<string | null> {
 async function getCompanyCurrency(company?: string | null): Promise<string | null> {
   const comp = company || (await getDefaultCompany());
   if (!comp) return null;
-  if (cachedCompanyCurrency) return cachedCompanyCurrency;
+  if (cachedCompanyCurrency[comp]) return cachedCompanyCurrency[comp];
   try {
     const res = await fetch(`/api/resource/Company/${encodeURIComponent(comp)}?fields=${encodeURIComponent('["default_currency"]')}`, {
       method: 'GET',
@@ -180,34 +231,27 @@ async function getCompanyCurrency(company?: string | null): Promise<string | nul
       credentials: 'include',
     });
     const data = await handleResponse(res);
-    cachedCompanyCurrency = data.data?.default_currency || data.message?.default_currency || null;
-    return cachedCompanyCurrency;
+    const currency = data.data?.default_currency || data.message?.default_currency || null;
+    if (currency) cachedCompanyCurrency[comp] = currency;
+    return currency;
   } catch (_e) {
-    cachedCompanyCurrency = null;
     return null;
   }
 }
 
 export async function getCompanyCurrencyInfo(): Promise<{ currency: string | null; symbol: string | null }> {
   const currency = await getCompanyCurrency();
-  let symbol: string | null = null;
-  if (currency) {
-    try {
-      const res = await fetch(`/api/method/frappe.utils.formatters.get_currency_symbol?currency=${encodeURIComponent(currency)}`, {
-        credentials: 'include',
-        headers: { ...defaultHeaders() },
-      });
-      const data = await handleResponse(res);
-      symbol = data.message || data.symbol || null;
-    } catch (_e) {
-      symbol = null;
-    }
-  }
+  const symbol = getCurrencySymbolFallback(currency);
   return { currency, symbol };
 }
 
 async function getDefaultWarehouse(): Promise<string | null> {
   if (cachedDefaultWarehouse !== null) return cachedDefaultWarehouse;
+  const context = await getSession().catch(() => null);
+  if (context?.driver_config?.van_warehouse) {
+    cachedDefaultWarehouse = context.driver_config.van_warehouse;
+    return cachedDefaultWarehouse;
+  }
   const company = await getDefaultCompany();
   if (!company) {
     cachedDefaultWarehouse = null;
@@ -375,8 +419,15 @@ export async function createSalesOrder(payload: {
   customer: string;
   items: SalesOrderItem[];
 }): Promise<SalesOrder> {
-  const [company, priceList] = await Promise.all([getDefaultCompany(), getSellingPriceList()]);
-  const currency = await getCompanyCurrency(company);
+  const session = await getSession().catch(() => null);
+  const driverConfig = session?.driver_config;
+
+  // Prefer Van Profile / Driver Config values; fall back to global defaults.
+  const [company, globalPriceList] = await Promise.all([getDefaultCompany(), getSellingPriceList()]);
+  const priceList = driverConfig?.selling_price_list || globalPriceList;
+  const taxesAndCharges = driverConfig?.taxes_and_charges || null;
+  const profileCurrency = driverConfig?.currency || null;
+  const currency = profileCurrency || await getCompanyCurrency(company);
   const today = new Date().toISOString().slice(0, 10);
   await refreshCsrfToken();
   const netTotal = payload.items.reduce((sum, i) => sum + i.qty * (i.rate ?? 0), 0);
@@ -396,13 +447,12 @@ export async function createSalesOrder(payload: {
         ...(company ? { company } : {}),
         ...(priceList ? { selling_price_list: priceList } : {}),
         ...(currency ? { currency, price_list_currency: currency, company_currency: currency } : {}),
+        ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : { taxes_and_charges: null, taxes: [] }),
         conversion_rate: 1,
         plc_conversion_rate: 1,
         order_type: DEFAULT_ORDER_TYPE,
         payment_terms_template: null,
         payment_schedule: paySchedule,
-        taxes: [],
-        taxes_and_charges: null,
         net_total: netTotal,
         base_net_total: netTotal,
         total: netTotal,
@@ -443,7 +493,12 @@ export async function getSalesOrder(name: string): Promise<SalesOrder> {
 
 export async function updateSalesOrder(name: string, payload: { items: SalesOrderItem[]; customer: string }) {
   await refreshCsrfToken();
-  const existing = await getSalesOrder(name).catch(() => null);
+  const [existing, session] = await Promise.all([
+    getSalesOrder(name).catch(() => null),
+    getSession().catch(() => null),
+  ]);
+  const driverConfig = session?.driver_config;
+  const taxesAndCharges = driverConfig?.taxes_and_charges || null;
   const currency = await getCompanyCurrency(existing?.company);
   const netTotal = payload.items.reduce((sum, i) => sum + i.qty * (i.rate ?? 0), 0);
   const grandTotal = netTotal;
@@ -465,8 +520,7 @@ export async function updateSalesOrder(name: string, payload: { items: SalesOrde
       plc_conversion_rate: 1,
       payment_terms_template: null,
       payment_schedule: paySchedule,
-      taxes: [],
-      taxes_and_charges: null,
+      ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : { taxes_and_charges: null, taxes: [] }),
       net_total: netTotal,
       base_net_total: netTotal,
       total: netTotal,
@@ -498,7 +552,7 @@ export async function updateSalesOrder(name: string, payload: { items: SalesOrde
 
 export async function submitSalesOrder(name: string): Promise<SalesOrder> {
   await refreshCsrfToken();
-  const res = await fetch('/api/method/van_sale.api.submit_sales_order', {
+  const res = await fetch('/api/method/van_sale.van_sale.sales.submit_sales_order', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     credentials: 'include',
@@ -506,6 +560,18 @@ export async function submitSalesOrder(name: string): Promise<SalesOrder> {
   });
   const data = await handleResponse(res);
   return (data.data || data.message) as SalesOrder;
+}
+
+export async function createSalesInvoice(salesOrder: string): Promise<string> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.sales.create_sales_invoice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    credentials: 'include',
+    body: JSON.stringify({ sales_order: salesOrder }),
+  });
+  const data = await handleResponse(res);
+  return (data.message || data.data) as string;
 }
 
 export async function recentOrders(owner: string): Promise<SalesOrder[]> {
@@ -522,7 +588,7 @@ export async function recentOrders(owner: string): Promise<SalesOrder[]> {
     ]),
     filters: JSON.stringify([
       ['Sales Order', 'owner', '=', owner],
-      ['Sales Order', 'docstatus', '=', 0],
+      ['Sales Order', 'docstatus', '!=', 2],
     ]),
     order_by: 'creation desc',
     page_length: '20',
@@ -560,7 +626,7 @@ export async function findDraftOrder(customer: string, owner?: string): Promise<
 }
 
 export async function getOutstandingInvoices(customer: string): Promise<OutstandingInvoice[]> {
-  const res = await fetch(`/api/method/van_sale.api.get_outstanding_invoices?customer=${encodeURIComponent(customer)}`, {
+  const res = await fetch(`/api/method/van_sale.van_sale.finance.get_outstanding_invoices?customer=${encodeURIComponent(customer)}`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -569,7 +635,7 @@ export async function getOutstandingInvoices(customer: string): Promise<Outstand
 }
 
 export async function getPaymentModes(): Promise<PaymentMode[]> {
-  const res = await fetch('/api/method/van_sale.api.get_payment_modes', {
+  const res = await fetch('/api/method/van_sale.van_sale.finance.get_payment_modes', {
     method: 'GET',
     credentials: 'include',
   });
@@ -577,9 +643,19 @@ export async function getPaymentModes(): Promise<PaymentMode[]> {
   return (data.message || []) as PaymentMode[];
 }
 
+export async function getAllPaymentModes(): Promise<PaymentMode[]> {
+  const res = await fetch('/api/method/van_sale.van_sale.driver.get_driver_setup_options', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return (data.message?.payment_modes || []) as PaymentMode[];
+}
+
 export async function getSalesOrders(customer: string): Promise<SalesOrderSummary[]> {
   const params = new URLSearchParams({ customer });
-  const res = await fetch(`/api/method/van_sale.api.get_sales_orders?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.van_sale.sales.get_sales_orders?${params.toString()}`, {
     headers: defaultHeaders(),
     credentials: 'include',
   });
@@ -589,7 +665,7 @@ export async function getSalesOrders(customer: string): Promise<SalesOrderSummar
 
 export async function getCustomerSummary(customer: string): Promise<CustomerSummary> {
   const params = new URLSearchParams({ customer });
-  const res = await fetch(`/api/method/van_sale.api.get_customer_summary?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.van_sale.finance.get_customer_summary?${params.toString()}`, {
     headers: defaultHeaders(),
     credentials: 'include',
   });
@@ -616,7 +692,7 @@ export async function createPaymentEntry(
   }
 
   await refreshCsrfToken();
-  const res = await fetch('/api/method/van_sale.api.create_payment_entry', {
+  const res = await fetch('/api/method/van_sale.van_sale.finance.create_payment_entry', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     credentials: 'include',
@@ -635,7 +711,7 @@ export async function getCustomerLedger(
   if (fromDate) params.append('from_date', fromDate);
   if (toDate) params.append('to_date', toDate);
 
-  const res = await fetch(`/api/method/van_sale.api.get_customer_ledger?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.van_sale.finance.get_customer_ledger?${params.toString()}`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -644,7 +720,7 @@ export async function getCustomerLedger(
 }
 
 export async function getDailySummary(): Promise<{ sales_orders: { count: number; total: number }; payments: { count: number; total: number } }> {
-  const res = await fetch('/api/method/van_sale.api.get_daily_summary', {
+  const res = await fetch('/api/method/van_sale.van_sale.sales.get_daily_summary', {
     method: 'GET',
     credentials: 'include',
   });
@@ -656,7 +732,7 @@ export async function getDailyLog(doctype: 'Sales Order' | 'Payment Entry') {
     doctype,
     _: Date.now().toString()
   });
-  const res = await fetch(`/api/method/van_sale.api.get_daily_log?${params.toString()}`, {
+  const res = await fetch(`/api/method/van_sale.van_sale.sales.get_daily_log?${params.toString()}`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -671,4 +747,226 @@ export async function getPaymentEntry(name: string) {
   });
   const data = await handleResponse(res);
   return data.data;
+}
+
+export async function getDriverStockDashboard(forceRefresh = false): Promise<DriverStockDashboard> {
+  const params = new URLSearchParams();
+  if (forceRefresh) {
+    params.set('force_refresh', '1');
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`/api/method/van_sale.van_sale.inventory.get_driver_stock_dashboard${suffix}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message as DriverStockDashboard;
+}
+
+export async function searchTransferItems(search = ''): Promise<Item[]> {
+  const params = new URLSearchParams();
+  if (search.trim()) params.set('search', search.trim());
+  const res = await fetch(`/api/method/van_sale.van_sale.inventory.search_transfer_items?${params.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return (data.message || []) as Item[];
+}
+
+export async function getTransferItemDetail(itemCode: string): Promise<TransferItemDetail> {
+  const params = new URLSearchParams({ item_code: itemCode });
+  const res = await fetch(`/api/method/van_sale.van_sale.inventory.get_transfer_item_detail?${params.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message as TransferItemDetail;
+}
+
+export async function createStockTransfer(lines: StockTransferLine[], remarks = '') {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.inventory.create_stock_transfer', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({
+      items: JSON.stringify(lines.map((line) => ({
+        item_code: line.item_code,
+        qty: line.qty,
+        batch_no: line.batch_no,
+        serial_nos: line.serial_nos || [],
+      }))),
+      remarks,
+      submit: 1,
+    }),
+  });
+  const data = await handleResponse(res);
+  return data.message as {
+    name: string;
+    docstatus: number;
+    posting_date: string;
+    from_warehouse: string;
+    to_warehouse: string;
+  };
+}
+
+export async function getDriverSetupOptions(): Promise<DriverSetupOptions> {
+  const res = await fetch('/api/method/van_sale.van_sale.driver.get_driver_setup_options', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message as DriverSetupOptions;
+}
+
+export async function createSalesReturn(customer: string, items: { item_code: string; qty: number }[]): Promise<string> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.sales.create_sales_return', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ customer, items }),
+  });
+  const data = await handleResponse(res);
+  return data.message;
+}
+
+export async function getActiveShift(): Promise<ActiveShift | null> {
+  const res = await fetch('/api/method/van_sale.van_sale.shift.get_active_shift', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return (data.message as ActiveShift | null) ?? null;
+}
+
+export async function openShift(balanceDetails: ShiftBalanceDetail[], notes?: string): Promise<ActiveShift> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.shift.open_shift', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ balance_details: JSON.stringify(balanceDetails), notes }),
+  });
+  const data = await handleResponse(res);
+  return data.message as ActiveShift;
+}
+
+export async function getShiftClosingSummary(): Promise<ShiftClosingSummary> {
+  const res = await fetch('/api/method/van_sale.van_sale.shift.get_shift_closing_summary', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message as ShiftClosingSummary;
+}
+
+export async function closeShift(
+  openingShift: string,
+  reconciliation: PaymentReconciliationRow[],
+  notes?: string,
+): Promise<{ name: string; net_difference: number }> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.shift.close_shift', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({
+      opening_shift: openingShift,
+      reconciliation: JSON.stringify(reconciliation),
+      notes,
+    }),
+  });
+  const data = await handleResponse(res);
+  return data.message;
+}
+
+export async function getRouteExpenses(): Promise<any[]> {
+  const res = await fetch('/api/method/van_sale.van_sale.finance.get_route_expenses', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message || [];
+}
+
+export async function submitRouteExpense(expenseType: string, amount: number, notes?: string): Promise<string> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.finance.submit_route_expense', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ expense_type: expenseType, amount, notes }),
+  });
+  const data = await handleResponse(res);
+  return data.message;
+}
+
+export function downloadPdf(doctype: string, name: string) {
+  const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}&format=Standard&no_letterhead=0`;
+  window.open(url, '_blank');
+}
+
+// ─── Van Profile API ─────────────────────────────────────────────────────────
+
+export async function listVanProfiles(): Promise<import('../types').VanProfile[]> {
+  const res = await fetch('/api/method/van_sale.van_sale.van_profile.list_van_profiles', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return (data.message || []) as import('../types').VanProfile[];
+}
+
+export async function getVanProfileOptions(): Promise<import('../types').VanProfileOptions> {
+  const res = await fetch('/api/method/van_sale.van_sale.van_profile.get_van_profile_options', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message as import('../types').VanProfileOptions;
+}
+
+export async function saveVanProfile(payload: Partial<import('../types').VanProfile>): Promise<import('../types').VanProfile> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.van_profile.save_van_profile', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ payload: JSON.stringify(payload) }),
+  });
+  const data = await handleResponse(res);
+  return data.message as import('../types').VanProfile;
+}
+
+export async function deleteVanProfile(name: string): Promise<void> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.van_profile.delete_van_profile', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  await handleResponse(res);
+}
+
+export async function assignDriverToProfile(driverUser: string, vanProfile: string): Promise<void> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.van_profile.assign_driver_to_profile', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ driver_user: driverUser, van_profile: vanProfile }),
+  });
+  await handleResponse(res);
 }

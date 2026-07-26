@@ -2,16 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <link rel="manifest" href="/assets/van_sale/frontend/manifest.webmanifest" />
+    <link rel="icon" href="/assets/van_sale/frontend/van-sale-icon.svg" type="image/svg+xml" />
     <meta name="theme-color" content="#FFFFFF" />
     <title>Van Sale</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-gray-50 font-[Inter]">
+  <body class="font-[Inter]">
     <div id="app"></div>
+    <script>
+      // Apply persisted theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var p = localStorage.getItem('vansale-theme') || 'system';
+          var dark = p === 'dark' || (p === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) {
+            document.documentElement.classList.add('dark');
+            var m = document.querySelector('meta[name="theme-color"]');
+            if (m) m.setAttribute('content', '#0f172a');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
     <script>
       // Disable PWA caching: unregister any existing service workers and avoid new registrations
