@@ -5,15 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <link rel="manifest" href="/assets/van_sale/frontend/manifest.webmanifest" />
     <link rel="icon" href="/assets/van_sale/frontend/van-sale-icon.svg" type="image/svg+xml" />
-    <meta name="theme-color" content="#FFFFFF" />
+    <meta name="theme-color" content="#F6F5F3" />
     <title>Van Sale</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <script type="module" crossorigin src="/assets/van_sale/frontend/assets/index-CudXUGRb.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/van_sale/frontend/assets/index-Br_-w8Ht.css">
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script type="module" crossorigin src="/assets/van_sale/frontend/assets/index-D1s8dBvn.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/van_sale/frontend/assets/index-CBgmyzul.css">
   </head>
-  <body class="font-[Inter]">
+  <body>
     <div id="app"></div>
     <script>
       // Apply persisted theme before first paint to avoid a flash.
@@ -21,10 +24,10 @@
         try {
           var p = localStorage.getItem('vansale-theme') || 'system';
           var dark = p === 'dark' || (p === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var m = document.querySelector('meta[name="theme-color"]');
           if (dark) {
             document.documentElement.classList.add('dark');
-            var m = document.querySelector('meta[name="theme-color"]');
-            if (m) m.setAttribute('content', '#0f172a');
+            if (m) m.setAttribute('content', '#121415');
           }
         } catch (e) {}
       })();

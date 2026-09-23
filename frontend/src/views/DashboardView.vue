@@ -1,21 +1,26 @@
 <template>
   <WorkspacePage width="default">
     <div class="space-y-6">
-      <!-- Greeting + hero collection KPI -->
-      <div class="overflow-hidden rounded-3xl border border-line bg-gradient-to-br from-primary to-primary/80 p-5 text-primary-fg shadow-raised md:p-6">
-        <p class="text-sm font-medium opacity-80">{{ greeting }}{{ firstName ? `, ${firstName}` : '' }}</p>
-        <p class="mt-3 text-xs font-semibold uppercase tracking-wide opacity-80">Collected today</p>
-        <p class="tnum mt-1 text-4xl font-bold md:text-5xl">{{ currency }} {{ fmt(dailySummary?.payments.total) }}</p>
-        <div class="mt-3 flex items-center gap-4 text-sm font-medium opacity-90">
-          <span>{{ dailySummary?.payments.count || 0 }} payments</span>
-          <span class="opacity-50">•</span>
-          <span>{{ dailySummary?.sales_orders.count || 0 }} orders</span>
-          <span v-if="driverConfig?.delivery_route" class="opacity-50">•</span>
-          <span v-if="driverConfig?.delivery_route">{{ driverConfig.delivery_route }}</span>
-        </div>
-        <div v-if="activeShift" class="mt-3 inline-flex items-center gap-2 rounded-full bg-primary-fg/15 px-3 py-1 text-xs font-semibold">
-          <span class="h-2 w-2 rounded-full bg-success"></span>
-          Shift open{{ shiftSince ? ` since ${shiftSince}` : '' }}
+      <!-- Greeting + hero collection KPI — flat brand slab, identical in both themes -->
+      <div class="relative overflow-hidden rounded-3xl bg-[#0D3F41] p-5 text-white shadow-raised md:p-6">
+        <div class="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-primary/15"></div>
+        <div class="relative">
+          <p class="text-[13px] font-medium text-white/72">{{ greeting }}{{ firstName ? `, ${firstName}` : '' }}</p>
+          <p class="mt-3.5 text-[11px] font-bold uppercase tracking-[0.1em] text-[#5FD6D0]">Collected today</p>
+          <p class="tnum mt-1 text-[38px] font-semibold leading-none tracking-tightest md:text-5xl">
+            {{ currency }} {{ fmt(dailySummary?.payments.total) }}
+          </p>
+          <div class="mt-3 flex items-center gap-2.5 text-[13px] font-medium text-white/80">
+            <span>{{ dailySummary?.payments.count || 0 }} payments</span>
+            <span class="text-white/40">·</span>
+            <span>{{ dailySummary?.sales_orders.count || 0 }} orders</span>
+            <span v-if="driverConfig?.delivery_route" class="text-white/40">·</span>
+            <span v-if="driverConfig?.delivery_route">{{ driverConfig.delivery_route }}</span>
+          </div>
+          <div v-if="activeShift" class="mt-3.5 inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold">
+            <span class="h-[7px] w-[7px] rounded-full bg-success"></span>
+            Shift open{{ shiftSince ? ` since ${shiftSince}` : '' }}
+          </div>
         </div>
       </div>
 

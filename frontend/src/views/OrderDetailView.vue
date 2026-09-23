@@ -60,6 +60,23 @@
         <AppButton v-if="order.docstatus === 0" variant="secondary" size="sm" icon="plus" @click="addMoreItems">Add items</AppButton>
         <AppButton v-if="order.docstatus === 1" variant="secondary" size="sm" icon="printer" @click="printPdf">Print receipt</AppButton>
       </div>
+
+      <!-- Invoicing options -->
+      <AppCard v-if="order.docstatus === 1 && (order.per_billed ?? 0) < 100">
+        <div class="space-y-3">
+          <label class="text-xs font-bold uppercase tracking-wider text-muted">Invoice type</label>
+          <SegmentedControl
+            :model-value="markAsPaid ? 'paid' : 'credit'"
+            :options="[{ value: 'credit', label: 'Credit (pay later)' }, { value: 'paid', label: 'Paid now' }]"
+            @update:modelValue="(v: string) => (markAsPaid = v === 'paid')"
+          />
+          <FormField v-if="markAsPaid" label="Mode of payment" required>
+            <BaseSelect v-model="modeOfPayment" placeholder="Select mode">
+              <option v-for="mode in paymentModes" :key="mode.name" :value="mode.name">{{ mode.name }}</option>
+            </BaseSelect>
+          </FormField>
+        </div>
+      </AppCard>
     </div>
 
     <!-- Primary action -->
@@ -70,8 +87,15 @@
     </StickyBar>
     <StickyBar v-else-if="order && order.docstatus === 1 && (order.per_billed ?? 0) < 100">
       <AppAlert v-if="invoiceCreated" tone="success" :message="`Invoice ${invoiceCreated} created`" class="mb-2" />
-      <AppButton size="lg" block icon="file-text" :loading="invoicing" @click="createInvoice">
-        {{ invoicing ? 'Creating invoice…' : 'Create sales invoice' }}
+      <AppButton
+        size="lg"
+        block
+        icon="file-text"
+        :loading="invoicing"
+        :disabled="markAsPaid && !modeOfPayment"
+        @click="createInvoice"
+      >
+        {{ invoicing ? 'Creating invoice…' : markAsPaid ? 'Create paid invoice' : 'Create sales invoice' }}
       </AppButton>
     </StickyBar>
   </WorkspacePage>
@@ -81,10 +105,10 @@
 import { onMounted, ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api/frappe';
-import type { SalesOrder } from '../types';
+import type { SalesOrder, PaymentMode } from '../types';
 import { useSessionStore } from '../stores/session';
 import WorkspacePage from '../components/WorkspacePage.vue';
-import { AppCard, AppButton, AppAlert, StatusBadge, SkeletonList, StickyBar } from '../components/ui';
+import { AppCard, AppButton, AppAlert, StatusBadge, SkeletonList, StickyBar, SegmentedControl, FormField, BaseSelect } from '../components/ui';
 
 const route = useRoute();
 const router = useRouter();
@@ -98,6 +122,9 @@ const error = ref('');
 const submitting = ref(false);
 const invoicing = ref(false);
 const invoiceCreated = ref('');
+const markAsPaid = ref(false);
+const modeOfPayment = ref('');
+const paymentModes = ref<PaymentMode[]>([]);
 
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -112,7 +139,10 @@ const load = async () => {
     loading.value = false;
   }
 };
-onMounted(load);
+onMounted(() => {
+  load();
+  api.getPaymentModes().then((modes) => (paymentModes.value = modes)).catch(() => {});
+});
 const reload = () => load();
 
 const submitOrder = async () => {
@@ -132,10 +162,17 @@ const submitOrder = async () => {
 
 const createInvoice = async () => {
   if (!order.value || order.value.docstatus !== 1) return;
+  if (markAsPaid.value && !modeOfPayment.value) {
+    error.value = 'Select a mode of payment to mark this invoice as paid.';
+    return;
+  }
   invoicing.value = true;
   error.value = '';
   try {
-    invoiceCreated.value = await api.createSalesInvoice(order.value.name);
+    invoiceCreated.value = await api.createSalesInvoice(order.value.name, {
+      markAsPaid: markAsPaid.value,
+      modeOfPayment: modeOfPayment.value,
+    });
     await load();
   } catch (e: any) {
     error.value = e?.message || 'Failed to create invoice';

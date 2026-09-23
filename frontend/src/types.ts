@@ -89,12 +89,14 @@ export interface VanProfile {
   company: string;
   is_active: boolean;
   delivery_route?: string;
+  default_cash_mode?: string;
   selling_price_list?: string;
   currency?: string;
   source_warehouse: string;
   van_warehouse: string;
   assigned_drivers: VanProfileDriver[];
   allowed_payment_modes: string[];
+  allowed_customer_groups: string[];
   taxes_and_charges?: string;
   apply_discount_on: string;
   daily_credit_limit: number;
@@ -117,6 +119,7 @@ export interface VanProfileOptions {
   warehouses: Array<{ name: string; company: string }>;
   payment_modes: PaymentMode[];
   routes: Array<{ name: string }>;
+  customer_groups: Array<{ name: string }>;
   companies: Array<{ name: string; default_currency?: string }>;
   price_lists: Array<{ name: string }>;
   tax_templates: Array<{ name: string; company: string }>;
@@ -156,6 +159,16 @@ export interface Item {
   has_serial_no?: boolean;
 }
 
+export interface ItemSalesHistoryRow {
+  sales_order: string;
+  transaction_date: string;
+  customer: string;
+  customer_name: string;
+  qty: number;
+  rate: number;
+  amount: number;
+}
+
 export interface CartLine {
   item: Item;
   qty: number;
@@ -191,6 +204,9 @@ export interface SalesOrder {
   naming_series?: string;
   order_type?: string;
   per_billed?: number;
+  additional_discount_percentage?: number;
+  discount_amount?: number;
+  apply_discount_on?: string;
 }
 export interface OutstandingInvoice {
   name: string;

@@ -27,11 +27,27 @@ REST_DOCTYPE_PERMISSIONS: dict[str, dict[str, int]] = {
 	# Payment configuration — read-only
 	"Mode of Payment":  {"read": 1},
 
+	# ERPNext's Payment Entry controller reads Account via a permission-checked
+	# frappe.get_list() during validate() (payment_entry.get_account_details())
+	# regardless of the calling doc's ignore_permissions flag — so creating a
+	# Payment Entry (create_payment_entry(), and create_sales_invoice()'s
+	# mark_as_paid path) 403s for a driver who holds only this role, even
+	# though the Payment Entry doc itself is created with ignore_permissions.
+	"Account":          {"read": 1},
+
 	# Van Profile — drivers may read their assigned profile
 	"Van Profile":      {"read": 1},
 
-	# Transactional doctypes the PWA reads/writes via REST or custom endpoints
-	"Sales Order":      {"read": 1, "write": 1, "create": 1},
+	# Transactional doctypes the PWA reads via REST. Writes are READ-ONLY at the role
+	# level on purpose: every Sales Order write now goes through a whitelisted endpoint
+	# (sales.create_sales_order / update_sales_order / submit_sales_order) that
+	# authorizes the caller itself and then uses flags.ignore_permissions. Previously
+	# this role carried create/write/submit so the frontend could POST a fully-formed
+	# order to frappe.client.insert, which meant anyone holding the role could write
+	# orders through plain /api/resource without passing a single van_sale check —
+	# and could dictate their own totals. Do not widen this back without moving the
+	# corresponding write back out of the endpoints.
+	"Sales Order":      {"read": 1, "report": 1, "write": 0, "create": 0, "submit": 0},
 	"Payment Entry":    {"read": 1},
 	"Sales Invoice":    {"read": 1},
 }

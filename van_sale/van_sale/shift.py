@@ -10,7 +10,10 @@ Opening -> Closing shift pair:
   (from collections), counted (entered by the driver) and the difference.
 
 This is the "lightweight" model: transactions are NOT stamped with the shift and
-selling is NOT blocked when no shift is open. Aggregation is purely by date.
+selling is NOT blocked when no shift is open. Aggregation is purely by date, at
+close time — but each closing keeps a durable `transactions` reference list (the
+exact Sales Order/Payment Entry/Van Expense Log names it summed) so the totals can
+be re-verified later even if a same-day record changes after the shift closes.
 """
 
 import json
@@ -45,6 +48,28 @@ def _cash_modes() -> set[str]:
 	}
 
 
+def _default_cash_mode(cash_modes: set[str], user: str) -> str:
+	"""Pick a cash-type Mode of Payment to use when the driver has no cash
+	collections/opening float yet. Prefers the Van Profile's own explicit
+	`default_cash_mode` (mirrors POS Profile's `posa_cash_mode_of_payment` in
+	posawesome), then falls back to one of the driver's allowed payment modes,
+	then the generic "Cash" record. Avoiding a hardcoded "Cash" here matters
+	because a driver restricted to their own Mode of Payment (e.g.
+	"Van - 01 - Cash") doesn't have access to a generic "Cash" record with a
+	different name.
+	"""
+	config = _get_driver_config(user=user, required=False)
+	if config and config.get("default_cash_mode") in cash_modes:
+		return config["default_cash_mode"]
+
+	allowed = _get_allowed_payment_modes(user=user)
+	if allowed:
+		for mode in allowed:
+			if mode in cash_modes:
+				return mode
+	return "Cash"
+
+
 def _find_open_shift(user: str) -> str | None:
 	"""Return the name of the user's open Van Shift Opening for today, if any."""
 	return frappe.db.get_value(
@@ -59,9 +84,9 @@ def _find_open_shift(user: str) -> str | None:
 	)
 
 
-def _collections_by_mode(user: str) -> dict[str, float]:
-	"""Today's submitted receive Payment Entries for the user, summed per mode."""
-	rows = frappe.get_all(
+def _todays_payment_entries(user: str) -> list:
+	"""Today's submitted receive Payment Entries for the user."""
+	return frappe.get_all(
 		"Payment Entry",
 		filters={
 			"docstatus": 1,
@@ -69,10 +94,14 @@ def _collections_by_mode(user: str) -> dict[str, float]:
 			"payment_type": "Receive",
 			"owner": user,
 		},
-		fields=["mode_of_payment", "paid_amount"],
+		fields=["name", "mode_of_payment", "paid_amount", "posting_date"],
 	)
+
+
+def _collections_by_mode(entries: list) -> dict[str, float]:
+	"""Today's Payment Entry collections, summed per mode."""
 	totals: dict[str, float] = {}
-	for row in rows:
+	for row in entries:
 		mode = row.mode_of_payment or "Cash"
 		totals[mode] = totals.get(mode, 0.0) + flt(row.paid_amount)
 	return totals
@@ -92,31 +121,67 @@ def _compute_closing(opening: dict) -> dict:
 		for row in (opening.get("balance_details") or [])
 		if row.get("mode_of_payment")
 	}
-	collections = _collections_by_mode(user)
-
-	total_expenses = flt(
-		frappe.db.get_value(
-			"Van Expense Log",
-			{"driver": user, "expense_date": today},
-			"sum(amount)",
-		)
-	)
+	payment_entries = _todays_payment_entries(user)
+	collections = _collections_by_mode(payment_entries)
 
 	# Sales = submitted Sales Orders for today (single source of truth, matching the
-	# superseded get_eod_summary).
-	total_sales = flt(
-		frappe.db.get_value(
-			"Sales Order",
-			{"docstatus": 1, "transaction_date": today, "owner": user},
-			"sum(grand_total)",
-		)
+	# superseded get_eod_summary). Fetched itemized (not a raw sum()) so the exact
+	# records can be recorded on the closing doc as an audit trail (see `transactions`
+	# below) — recomputing "today's records by this owner" after the fact can't be
+	# re-verified later if a record changes, but a durable reference list can.
+	sales_orders = frappe.get_all(
+		"Sales Order",
+		filters={"docstatus": 1, "transaction_date": today, "owner": user},
+		fields=["name", "grand_total", "transaction_date"],
+	)
+	total_sales = flt(sum(flt(so.grand_total) for so in sales_orders))
+
+	expenses = frappe.get_all(
+		"Van Expense Log",
+		filters={"driver": user, "expense_date": today},
+		fields=["name", "amount", "expense_date"],
+	)
+	total_expenses = flt(sum(flt(e.amount) for e in expenses))
+
+	transactions = (
+		[
+			{
+				"reference_doctype": "Sales Order",
+				"reference_name": so.name,
+				"posting_date": so.transaction_date,
+				"amount": flt(so.grand_total),
+			}
+			for so in sales_orders
+		]
+		+ [
+			{
+				"reference_doctype": "Payment Entry",
+				"reference_name": pe.name,
+				"posting_date": pe.posting_date,
+				"amount": flt(pe.paid_amount),
+			}
+			for pe in payment_entries
+		]
+		+ [
+			{
+				"reference_doctype": "Van Expense Log",
+				"reference_name": e.name,
+				"posting_date": e.expense_date,
+				"amount": flt(e.amount),
+			}
+			for e in expenses
+		]
 	)
 
 	cash_modes = _cash_modes()
 	modes = list(dict.fromkeys(list(opening_floats) + list(collections)))
 	if not any(m in cash_modes or m == "Cash" for m in modes):
-		# Ensure a Cash row exists so expenses have somewhere to land.
-		modes.insert(0, "Cash")
+		# Ensure a cash row exists so expenses have somewhere to land. Prefer the
+		# driver's own allowed cash mode (e.g. "Van - 01 - Cash") over the generic
+		# "Cash" literal: a driver restricted via User Permissions to their own
+		# Mode of Payment can't even reference the generic "Cash" record, and
+		# doing so silently fails doc-level permission checks on submit.
+		modes.insert(0, _default_cash_mode(cash_modes, user))
 
 	# Expenses are paid out of the cash drawer — deduct from the first cash mode.
 	cash_row_mode = next((m for m in modes if m in cash_modes or m == "Cash"), None)
@@ -147,6 +212,7 @@ def _compute_closing(opening: dict) -> dict:
 		"total_expenses": total_expenses,
 		"total_opening_float": sum(opening_floats.values()),
 		"expected_cash": expected_cash,
+		"transactions": transactions,
 	}
 
 
@@ -212,6 +278,13 @@ def open_shift(balance_details, notes: str = None):
 			{"mode_of_payment": mode, "opening_amount": flt(row.get("opening_amount"))},
 		)
 
+	# Van Shift Opening is created/submitted entirely under application control
+	# (authorization already enforced above via _require_van_user() and the
+	# per-mode allowlist check), matching how Payment Entry/Sales Invoice/Stock
+	# Entry are handled elsewhere in this app — rather than relying on a Custom
+	# DocPerm + has_permission hook to grant exactly the right slice of write/
+	# submit access, which is easy to get subtly wrong (see _has_shift_permission).
+	doc.flags.ignore_permissions = True
 	doc.insert()
 	doc.submit()
 	return _serialize_opening(doc)
@@ -305,6 +378,14 @@ def close_shift(opening_shift: str, reconciliation, notes: str = None):
 		)
 	doc.net_difference = net_difference
 
+	for txn in computed["transactions"]:
+		doc.append("transactions", txn)
+
+	# Same rationale as open_shift(): authorization is already enforced above
+	# (_require_van_user(), the "own shift only" ownership check, and driver-scoped
+	# amounts recomputed server-side by _compute_closing), so we bypass the DocPerm/
+	# has_permission layer entirely rather than depending on it to line up exactly.
+	doc.flags.ignore_permissions = True
 	doc.insert()
 	doc.submit()  # on_submit flips the opening shift to Closed
 	return {"name": doc.name, "net_difference": net_difference}

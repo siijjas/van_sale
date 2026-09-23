@@ -62,7 +62,13 @@ def _to_float(value, precision: int | None = None) -> float:
 def _get_driver_config(user: str | None = None, required: bool = True, use_cache: bool = True):
 	current_user = user or frappe.session.user
 	if use_cache:
-		cached = frappe.cache.get_value(_driver_cache_key(current_user))
+		# expires=True because this key is written with expires_in_sec. Without it
+		# get_value() writes the result — including a MISS, as None — into
+		# frappe.local.cache, while set_value() with an expiry writes only to redis.
+		# The poisoned None then shadows redis for the rest of the request, so every
+		# later _get_driver_config() call in the same request rebuilds the whole Van
+		# Profile payload from the database.
+		cached = frappe.cache.get_value(_driver_cache_key(current_user), expires=True)
 		if cached:
 			return cached
 
@@ -137,13 +143,20 @@ def _require_van_user(user: str | None = None):
 
 
 def _validate_customer_access(customer: str, user: str | None = None):
-	"""For drivers with an assigned delivery route, restrict access to customers in that territory.
+	"""Restrict a driver's customer access to their Van Profile's delivery route and/or
+	allowed customer groups. Both checks come from the SAME Van Profile record (the
+	single source of truth for what a driver can see) rather than from standalone
+	Frappe User Permission records, which are easy to leave out of sync with a
+	driver's actual profile/van assignment.
 
 	- Administrators and Managers: unrestricted.
-	- Drivers with no delivery_route configured: unrestricted.
-	- Drivers with a delivery_route: the customer's ERPNext territory must either
-	  match exactly or be a descendant of the route territory.
-	  Example: route = "All Territories"  covers "Qatar", "Dubai", etc.
+	- delivery_route (Territory): if set, the customer's territory must match it
+	  exactly or be a descendant of it. Example: route = "All Territories" covers
+	  "Qatar", "Dubai", etc.
+	- allowed_customer_groups: if set, the customer's customer_group must be one of
+	  them.
+	- Either restriction left unset on the Van Profile means unrestricted on that
+	  dimension; both apply together (AND) when both are configured.
 
 	Assumes _require_van_user() has already been called.
 	"""
@@ -152,31 +165,42 @@ def _validate_customer_access(customer: str, user: str | None = None):
 		return
 
 	config = _get_driver_config(user=current_user, required=False)
-	if not config or not config.get("delivery_route"):
-		return  # No route restriction configured for this driver
-
-	cust_territory = frappe.db.get_value("Customer", customer, "territory")
-	if not cust_territory:
-		return  # Customer has no territory — no restriction applied
-
-	# Exact match
-	if cust_territory == config["delivery_route"]:
+	if not config:
 		return
 
-	# Ancestry match: allow if the delivery route is a parent of the customer territory
-	# (e.g. delivery_route = "All Territories" should include child territory "Qatar")
-	try:
-		from frappe.utils.nestedset import get_ancestors_of
-		ancestors = get_ancestors_of("Territory", cust_territory)
-		if config["delivery_route"] in ancestors:
-			return
-	except Exception:
-		# If the nestedset check fails for any reason, be permissive rather than
-		# blocking a legitimate field operation.
-		return
+	delivery_route = config.get("delivery_route")
+	allowed_groups = config.get("allowed_customer_groups") or []
+	if not delivery_route and not allowed_groups:
+		return  # No restriction configured for this driver
 
-	frappe.throw(
-		f"Customer territory '{cust_territory}' is outside your assigned delivery route "
-		f"'{config['delivery_route']}'. Contact your manager if this is incorrect.",
-		frappe.PermissionError,
+	customer_doc = frappe.db.get_value(
+		"Customer", customer, ["territory", "customer_group"], as_dict=True
 	)
+	if not customer_doc:
+		return
+
+	if delivery_route and customer_doc.territory and customer_doc.territory != delivery_route:
+		# Ancestry match: allow if the delivery route is a parent of the customer
+		# territory (e.g. delivery_route = "All Territories" should include child
+		# territory "Qatar").
+		is_descendant = False
+		try:
+			from frappe.utils.nestedset import get_ancestors_of
+			is_descendant = delivery_route in get_ancestors_of("Territory", customer_doc.territory)
+		except Exception:
+			# If the nestedset check fails for any reason, be permissive rather than
+			# blocking a legitimate field operation.
+			is_descendant = True
+		if not is_descendant:
+			frappe.throw(
+				f"Customer territory '{customer_doc.territory}' is outside your assigned delivery "
+				f"route '{delivery_route}'. Contact your manager if this is incorrect.",
+				frappe.PermissionError,
+			)
+
+	if allowed_groups and customer_doc.customer_group and customer_doc.customer_group not in allowed_groups:
+		frappe.throw(
+			f"Customer group '{customer_doc.customer_group}' is not assigned to your van profile. "
+			f"Contact your manager if this is incorrect.",
+			frappe.PermissionError,
+		)

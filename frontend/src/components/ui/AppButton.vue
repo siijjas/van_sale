@@ -4,7 +4,9 @@
     :to="to"
     :type="to ? undefined : type"
     :disabled="!to && (disabled || loading)"
-    class="focus-ring inline-flex select-none items-center justify-center gap-2 rounded-2xl font-semibold transition active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50"
+    class="focus-ring inline-flex select-none items-center justify-center gap-2 rounded-2xl font-semibold
+           transition duration-150 ease-emphasis active:scale-[0.98]
+           disabled:pointer-events-none disabled:opacity-40"
     :class="[variantClass, sizeClass, block ? 'w-full' : '']"
   >
     <AppIcon v-if="loading" name="refresh" :size="iconSize" class="animate-spin" />
@@ -34,15 +36,17 @@ const props = withDefaults(
   { variant: 'primary', size: 'md', type: 'button' },
 );
 
+// Pressed = tonal darken + shadow collapse (physical), not just a scale.
 const variantClass = computed(
   () =>
     ({
-      primary: 'bg-primary text-primary-fg shadow-sm hover:opacity-90',
-      success: 'bg-success text-success-fg shadow-sm hover:opacity-90',
-      warning: 'bg-warning text-warning-fg shadow-sm hover:opacity-90',
-      danger: 'bg-danger text-danger-fg shadow-sm hover:opacity-90',
-      secondary: 'border border-line-strong bg-card text-foreground shadow-sm hover:bg-card-muted',
-      subtle: 'bg-card-muted text-foreground hover:bg-line',
+      primary: 'bg-primary text-primary-fg shadow-btn hover:brightness-110 active:brightness-90 active:shadow-none',
+      success: 'bg-success text-success-fg shadow-btn hover:brightness-110 active:brightness-90 active:shadow-none',
+      warning: 'bg-warning text-warning-fg shadow-btn hover:brightness-110 active:brightness-90 active:shadow-none',
+      danger: 'bg-danger text-danger-fg shadow-btn hover:brightness-110 active:brightness-90 active:shadow-none',
+      secondary:
+        'bg-card text-foreground shadow-card ring-1 ring-inset ring-line-strong hover:bg-card-muted active:bg-card-muted active:shadow-none',
+      subtle: 'bg-card-muted text-foreground hover:brightness-[0.97] active:brightness-95',
       ghost: 'text-muted hover:bg-card-muted hover:text-foreground',
     })[props.variant],
 );
@@ -50,11 +54,11 @@ const variantClass = computed(
 const sizeClass = computed(
   () =>
     ({
-      sm: 'min-h-touch px-3.5 text-sm',
+      sm: 'min-h-touch px-4 text-[13px]',
       md: 'min-h-touch-lg px-5 text-[15px]',
       lg: 'min-h-touch-xl px-6 text-base',
     })[props.size],
 );
 
-const iconSize = computed(() => (props.size === 'sm' ? 16 : props.size === 'lg' ? 22 : 18));
+const iconSize = computed(() => (props.size === 'sm' ? 15 : props.size === 'lg' ? 20 : 18));
 </script>

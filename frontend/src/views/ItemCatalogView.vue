@@ -21,6 +21,14 @@
                 </span>
                 <span class="text-subtle">•</span>
                 <span class="text-muted">{{ item.item_code }}</span>
+                <button
+                  type="button"
+                  class="flex h-6 w-6 items-center justify-center rounded-full text-subtle transition hover:bg-card-muted hover:text-foreground"
+                  aria-label="View sales history"
+                  @click="openHistory(item)"
+                >
+                  <AppIcon name="clock" :size="14" />
+                </button>
               </div>
               <div class="mt-1.5">
                 <StatusBadge v-if="hasQty(item) && item.actual_qty! <= 0" tone="danger" :dot="false">Out of stock</StatusBadge>
@@ -80,9 +88,37 @@
       :price="selectedItem ? `${currency} ${itemPrice(selectedItem)?.toFixed(2)}` : undefined"
       :max-qty="selectedItem?.actual_qty !== undefined ? selectedItem.actual_qty : undefined"
       :initial-qty="selectedItem ? getQty(selectedItem.item_code) : 0"
+      :step="0.5"
       :confirm-label="selectedItem && getQty(selectedItem.item_code) > 0 ? 'Update qty' : 'Add to order'"
       @confirm="onQtyConfirmed"
     />
+
+    <BottomSheet v-model="historyOpen" :title="historyItem ? historyItem.item_name : 'Sales history'">
+      <div class="space-y-3">
+        <p class="text-xs font-semibold uppercase tracking-wide text-muted">
+          Previous rate for {{ customerName || 'this customer' }}
+        </p>
+        <SkeletonList v-if="historyLoading" :rows="4" height="3.5rem" />
+        <EmptyState
+          v-else-if="!historyRows.length"
+          icon="clock"
+          title="No previous sales"
+          :description="`${customerName || 'This customer'} hasn't been sold this item before.`"
+        />
+        <div v-else class="divide-y divide-line">
+          <div v-for="row in historyRows" :key="row.sales_order" class="flex items-center justify-between gap-3 py-3">
+            <div class="min-w-0">
+              <p class="truncate font-semibold text-foreground">{{ row.sales_order }}</p>
+              <p class="mt-0.5 text-xs text-muted">{{ row.transaction_date }}</p>
+            </div>
+            <div class="shrink-0 text-right">
+              <p class="tnum text-sm font-bold text-foreground">{{ currency }} {{ row.rate.toFixed(2) }}</p>
+              <p class="tnum text-xs text-muted">qty {{ row.qty }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </BottomSheet>
   </WorkspacePage>
 </template>
 
@@ -90,10 +126,10 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api/frappe';
-import type { Item } from '../types';
+import type { Item, ItemSalesHistoryRow } from '../types';
 import { useSessionStore } from '../stores/session';
 import WorkspacePage from '../components/WorkspacePage.vue';
-import { AppCard, AppAlert, AppIcon, SearchBar, StatusBadge, SkeletonList, EmptyState, StickyBar, AppButton, QtyInputSheet } from '../components/ui';
+import { AppCard, AppAlert, AppIcon, SearchBar, StatusBadge, SkeletonList, EmptyState, StickyBar, AppButton, QtyInputSheet, BottomSheet } from '../components/ui';
 
 const store = useSessionStore();
 const route = useRoute();
@@ -111,6 +147,11 @@ const total = computed(() => store.cartTotal.toFixed(2));
 
 const sheetOpen = ref(false);
 const selectedItem = ref<Item | null>(null);
+
+const historyOpen = ref(false);
+const historyItem = ref<Item | null>(null);
+const historyRows = ref<ItemSalesHistoryRow[]>([]);
+const historyLoading = ref(false);
 
 const loadItems = async () => {
   loading.value = true;
@@ -157,6 +198,20 @@ function onQtyConfirmed(qty: number) {
 
 function getQty(itemCode: string) {
   return store.cart.find((line) => line.item.item_code === itemCode)?.qty || 0;
+}
+
+async function openHistory(item: Item) {
+  historyItem.value = item;
+  historyOpen.value = true;
+  historyLoading.value = true;
+  historyRows.value = [];
+  try {
+    historyRows.value = await api.getItemSalesHistory(item.item_code, store.customer?.name);
+  } catch (_e) {
+    historyRows.value = [];
+  } finally {
+    historyLoading.value = false;
+  }
 }
 
 const customerName = computed(() => store.customer?.customer_name || customerNameParam || '');

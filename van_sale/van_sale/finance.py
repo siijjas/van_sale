@@ -1,5 +1,6 @@
 import json
 import frappe
+from frappe.utils import flt
 from van_sale.van_sale.utils import (
 	_ensure_driver_mode_allowed,
 	_get_allowed_payment_modes,
@@ -96,22 +97,27 @@ def get_customer_summary(customer: str):
 	}
 
 
-@frappe.whitelist()
-def create_payment_entry(
+def make_receive_payment_entry(
 	customer: str,
 	mode_of_payment: str,
 	paid_amount: float,
-	references: str,
-	sales_order: str = None,
+	reference_rows: list[dict],
+	company: str | None = None,
 ):
-	_require_van_user()
-	_validate_customer_access(customer)
-	# Enforce the per-driver payment mode allowlist
-	_ensure_driver_mode_allowed(mode_of_payment)
+	"""Build, insert, and submit a customer "Receive" Payment Entry.
 
-	refs = json.loads(references)
-	company = _default_company()
+	Shared by create_payment_entry() (manual driver-entered collection against
+	outstanding invoices) and create_sales_invoice()'s mark_as_paid path
+	(collect payment for a brand-new invoice at the moment it's raised), so
+	both go through the exact same account-resolution and submission logic.
 
+	Payment Entry is a standard ERPNext financial doctype. Van Sales Driver does
+	not hold broad ERPNext accounts permissions, so this always inserts/submits
+	with ignore_permissions=True — callers are responsible for authorizing the
+	request first (_require_van_user(), _validate_customer_access(),
+	_ensure_driver_mode_allowed()).
+	"""
+	company = company or _default_company()
 	curr = frappe.get_cached_value("Company", company, "default_currency")
 	paid_to = frappe.db.get_value(
 		"Mode of Payment Account",
@@ -127,10 +133,6 @@ def create_payment_entry(
 	party_account = get_party_account("Customer", customer, company)
 
 	pe = frappe.new_doc("Payment Entry")
-	# Payment Entry is a standard ERPNext financial doctype. Van Sales Driver does not hold
-	# broad ERPNext accounts permissions. Authorization is enforced explicitly above via
-	# _require_van_user(), _validate_customer_access(), and _ensure_driver_mode_allowed().
-	# flags.ignore_permissions lets us insert/submit without requiring the Accounts User role.
 	pe.flags.ignore_permissions = True
 	pe.payment_type = "Receive"
 	pe.party_type = "Customer"
@@ -147,34 +149,79 @@ def create_payment_entry(
 		frappe.db.get_value("Account", party_account, "account_currency") or curr
 	)
 
-	# Allocate to Sales Invoices
-	for ref in refs:
-		pe.append(
-			"references",
-			{
-				"reference_doctype": "Sales Invoice",
-				"reference_name": ref["name"],
-				"total_amount": ref["grand_total"],
-				"outstanding_amount": ref["outstanding_amount"],
-				"allocated_amount": ref["allocated_amount"],
-			},
-		)
-
-	# Link to Sales Order for advance payment
-	if sales_order:
-		so_doc = frappe.get_doc("Sales Order", sales_order)
-		pe.append(
-			"references",
-			{
-				"reference_doctype": "Sales Order",
-				"reference_name": sales_order,
-				"total_amount": so_doc.grand_total,
-				"allocated_amount": paid_amount,
-			},
-		)
+	for row in reference_rows:
+		pe.append("references", row)
 
 	pe.insert()
 	pe.submit()
+	return pe
+
+
+@frappe.whitelist()
+def create_payment_entry(
+	customer: str,
+	mode_of_payment: str,
+	paid_amount: float,
+	references: str,
+	sales_order: str = None,
+):
+	_require_van_user()
+	_validate_customer_access(customer)
+	# Enforce the per-driver payment mode allowlist
+	_ensure_driver_mode_allowed(mode_of_payment)
+
+	refs = json.loads(references)
+	company = _default_company()
+
+	# Allocate to Sales Invoices
+	reference_rows = [
+		{
+			"reference_doctype": "Sales Invoice",
+			"reference_name": ref["name"],
+			"total_amount": ref["grand_total"],
+			"outstanding_amount": ref["outstanding_amount"],
+			"allocated_amount": ref["allocated_amount"],
+		}
+		for ref in refs
+	]
+
+	# Link to Sales Order for advance payment. A Sales Order reference row's
+	# "outstanding amount" isn't a real doctype field — it must be derived the
+	# same way ERPNext's own Payment Entry form does (grand_total - advance_paid),
+	# via the framework's own get_reference_details(), or the row is left with
+	# outstanding_amount=0 and ERPNext's own row validation rejects ANY positive
+	# allocated_amount with "Allocated Amount cannot be greater than outstanding
+	# amount" — which is exactly the bug this fixes.
+	#
+	# outstanding_amount here is the order's *rounded* total (grand_total minus
+	# any rounding adjustment) minus advance_paid — e.g. grand_total 12.5 with a
+	# -0.5 rounding adjustment gives outstanding 12.0. A driver collecting the
+	# order's unrounded grand_total (12.5) is legitimately allowed to — that's a
+	# normal advance, not a mistake — but Payment Entry's own row validation
+	# always enforces allocated_amount <= outstanding_amount, so the excess
+	# can't be allocated to this Sales Order; it's left unallocated on the
+	# Payment Entry instead (a standard ERPNext advance/credit on the customer).
+	if sales_order:
+		from erpnext.accounts.party import get_party_account
+		from erpnext.accounts.doctype.payment_entry.payment_entry import get_reference_details
+
+		party_account = get_party_account("Customer", customer, company)
+		party_account_currency = frappe.db.get_value("Account", party_account, "account_currency")
+		details = get_reference_details("Sales Order", sales_order, party_account_currency)
+
+		allocated = min(flt(paid_amount), flt(details.outstanding_amount))
+		if allocated <= 0:
+			frappe.throw(f"Sales Order {sales_order} has no outstanding amount to allocate against.")
+
+		reference_rows.append({
+			"reference_doctype": "Sales Order",
+			"reference_name": sales_order,
+			"total_amount": details.total_amount,
+			"outstanding_amount": details.outstanding_amount,
+			"allocated_amount": allocated,
+		})
+
+	pe = make_receive_payment_entry(customer, mode_of_payment, paid_amount, reference_rows, company=company)
 	return pe.name
 
 

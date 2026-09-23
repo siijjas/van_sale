@@ -103,14 +103,28 @@ def _get_stock_snapshot(config: dict):
 
 @frappe.whitelist()
 def get_driver_stock_dashboard(force_refresh: int = 0):
+	# Gate first, before the cache read: this was the only whitelisted endpoint in the
+	# app without it, relying on _get_driver_config() throwing instead. utils.py states
+	# the convention — call _require_van_user() at the very top of every one.
+	_require_van_user()
 	user = frappe.session.user
 	use_cache = not _coerce_check(force_refresh)
 	if use_cache:
-		cached = frappe.cache.get_value(_driver_stock_cache_key(user))
+		# expires=True — this key carries an expiry, see the note in _get_driver_config().
+		cached = frappe.cache.get_value(_driver_stock_cache_key(user), expires=True)
 		if cached:
 			return cached
 
-	config = _get_driver_config(user=user)
+	# Unlike create_sales_return(), there is no sensible fallback here — a van stock
+	# snapshot is meaningless without a van warehouse — so this still requires a
+	# profile. It just says so in terms the caller can act on, rather than surfacing
+	# the bare "No active driver configuration found".
+	config = _get_driver_config(user=user, required=False)
+	if not config:
+		frappe.throw(
+			"Van stock is only available to a driver assigned to an active Van Profile. "
+			"Ask a manager to assign you to one."
+		)
 	payload = _get_stock_snapshot(config)
 	_set_driver_stock_cache(user, payload)
 	return payload

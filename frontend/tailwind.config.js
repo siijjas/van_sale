@@ -41,24 +41,32 @@ export default {
         },
       },
       borderRadius: {
-        xl: '0.875rem',
-        '2xl': '1.125rem',
-        '3xl': '1.5rem',
+        // Tightened one full step — reads as a field tool, not a consumer app.
+        lg: '0.5rem', // 8
+        xl: '0.625rem', // 10 — icon tiles, inner chips
+        '2xl': '0.75rem', // 12 — buttons, inputs
+        '3xl': '0.875rem', // 14 — cards, sheets-on-desktop
+        '4xl': '1.25rem', // 20 — bottom-sheet top corners
       },
       boxShadow: {
-        // Theme-aware shadows (variables flip in dark mode).
+        // Theme-aware elevation (variables flip in dark mode).
         card: 'var(--shadow-card)',
         raised: 'var(--shadow-raised)',
         pop: 'var(--shadow-pop)',
+        btn: 'var(--shadow-btn)',
       },
       spacing: {
-        // Field-ergonomic touch targets.
-        touch: '2.75rem', // 44px — WCAG min
-        'touch-lg': '3.25rem', // 52px — primary actions
-        'touch-xl': '3.75rem', // 60px — hero CTAs
+        // Field-ergonomic touch targets — nudged up from 44/52/60.
+        touch: '2.875rem', // 46px
+        'touch-lg': '3.375rem', // 54px — primary actions
+        'touch-xl': '3.875rem', // 62px — hero CTAs
       },
       fontFamily: {
-        sans: ['Inter var', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Geist', 'Inter var', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        mono: ['Geist Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
+      letterSpacing: {
+        tightest: '-0.03em',
       },
       transitionTimingFunction: {
         emphasis: 'cubic-bezier(0.2, 0.8, 0.2, 1)',

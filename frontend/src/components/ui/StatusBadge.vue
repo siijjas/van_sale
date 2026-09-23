@@ -1,9 +1,9 @@
 <template>
   <span
-    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide"
+    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.06em]"
     :class="toneClass"
   >
-    <span v-if="dot" class="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
+    <span v-if="dot" class="h-1.5 w-1.5 rounded-full bg-current" />
     <slot>{{ label }}</slot>
   </span>
 </template>
@@ -44,11 +44,11 @@ const resolvedTone = computed<Tone>(() => {
 const toneClass = computed(
   () =>
     ({
-      success: 'bg-success/12 text-success',
-      warning: 'bg-warning/15 text-warning',
-      danger: 'bg-danger/12 text-danger',
-      info: 'bg-info/12 text-info',
-      primary: 'bg-primary/12 text-primary',
+      success: 'bg-success/14 text-success',
+      warning: 'bg-warning/16 text-warning',
+      danger: 'bg-danger/14 text-danger',
+      info: 'bg-info/14 text-info',
+      primary: 'bg-primary-soft text-primary',
       neutral: 'bg-card-muted text-muted',
     })[resolvedTone.value],
 );

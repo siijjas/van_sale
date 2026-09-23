@@ -9,18 +9,18 @@
           <button
             v-if="back"
             type="button"
-            class="focus-ring -ml-1 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-card text-muted transition hover:text-foreground"
+            class="focus-ring -ml-1 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-card-muted text-muted transition hover:text-foreground active:scale-90"
             aria-label="Back"
             @click="goBack"
           >
-            <AppIcon name="arrow-left" :size="20" />
+            <AppIcon name="arrow-left" :size="19" />
           </button>
           <div class="min-w-0">
-            <p v-if="eyebrow" class="text-[11px] font-bold uppercase tracking-widest text-primary">{{ eyebrow }}</p>
-            <h1 v-if="title" class="mt-0.5 truncate text-[22px] font-bold tracking-tight text-foreground md:text-3xl">
+            <p v-if="eyebrow" class="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">{{ eyebrow }}</p>
+            <h1 v-if="title" class="mt-0.5 truncate text-[22px] font-bold tracking-tight text-foreground md:text-[32px] md:tracking-tightest">
               {{ title }}
             </h1>
-            <p v-if="description" class="mt-1 max-w-2xl text-sm leading-relaxed text-muted">{{ description }}</p>
+            <p v-if="description" class="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">{{ description }}</p>
           </div>
         </div>
         <div v-if="$slots.actions" class="flex flex-wrap items-center gap-2">

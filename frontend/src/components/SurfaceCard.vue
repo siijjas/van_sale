@@ -1,8 +1,5 @@
 <template>
-  <section
-    class="rounded-2xl border border-slate-200 bg-white shadow-sm"
-    :class="paddingClass"
-  >
+  <section class="rounded-3xl bg-card shadow-card" :class="paddingClass">
     <slot />
   </section>
 </template>

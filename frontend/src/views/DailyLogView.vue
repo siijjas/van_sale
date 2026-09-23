@@ -28,6 +28,10 @@
             <div class="flex flex-col items-end gap-1.5">
               <p class="tnum text-base font-bold text-foreground">{{ currency }} {{ fmt(item.grand_total || item.paid_amount) }}</p>
               <StatusBadge :status="item.status" :dot="false" />
+              <template v-if="!isPayments">
+                <StatusBadge :tone="invoiceStatus(item).tone" :dot="false">{{ invoiceStatus(item).label }}</StatusBadge>
+                <StatusBadge :status="paymentStatus(item).label" :dot="false">{{ paymentStatus(item).label }}</StatusBadge>
+              </template>
               <StatusBadge v-if="isPayments && item.mode_of_payment" tone="neutral" :dot="false">{{ item.mode_of_payment }}</StatusBadge>
             </div>
           </div>
@@ -59,6 +63,32 @@ const items = ref<any[]>([]);
 const loading = ref(true);
 
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const invoiceStatus = (item: any): { label: string; tone: 'success' | 'warning' | 'neutral' } => {
+  const perBilled = item.per_billed || 0;
+  if (perBilled >= 99.99) return { label: 'Invoiced', tone: 'success' };
+  if (perBilled > 0) return { label: 'Partially Invoiced', tone: 'warning' };
+  return { label: 'Not Invoiced', tone: 'neutral' };
+};
+
+const paymentStatus = (item: any): { label: string } => {
+  // Once invoiced, the invoice's own outstanding_amount is the source of
+  // truth — a mark-as-paid invoice settles there, not as advance_paid on the
+  // Sales Order itself, so an order can be fully paid while advance_paid
+  // stays 0.
+  const invoicedTotal = item.invoiced_total || 0;
+  if (invoicedTotal > 0) {
+    const outstanding = item.invoiced_outstanding || 0;
+    if (outstanding <= 0.01) return { label: 'Paid' };
+    if (outstanding < invoicedTotal - 0.01) return { label: 'Partly Paid' };
+    return { label: 'Unpaid' };
+  }
+  const grandTotal = item.grand_total || 0;
+  const advancePaid = item.advance_paid || 0;
+  if (grandTotal > 0 && advancePaid >= grandTotal - 0.01) return { label: 'Paid' };
+  if (advancePaid > 0) return { label: 'Partly Paid' };
+  return { label: 'Unpaid' };
+};
 
 const totalCollection = computed(() =>
   isPayments.value ? items.value.reduce((sum, item) => sum + (item.paid_amount || 0), 0) : 0,

@@ -2,10 +2,10 @@
   <component
     :is="interactive ? 'button' : 'div'"
     :type="interactive ? 'button' : undefined"
-    class="rounded-3xl border border-line bg-card text-left shadow-card transition"
+    class="rounded-3xl bg-card text-left shadow-card transition duration-150 ease-emphasis"
     :class="[
       paddingClass,
-      interactive ? 'focus-ring w-full hover:border-line-strong hover:shadow-raised active:scale-[0.99]' : '',
+      interactive ? 'focus-ring w-full hover:shadow-raised active:scale-[0.994] active:shadow-card' : '',
     ]"
   >
     <slot />

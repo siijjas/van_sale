@@ -119,11 +119,9 @@
    "write": 1
   },
   {
-   "create": 1,
    "email": 1,
    "print": 1,
    "read": 1,
-   "submit": 1,
    "role": "Van Sales Driver"
   }
  ],

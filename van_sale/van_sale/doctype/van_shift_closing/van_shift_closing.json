@@ -24,6 +24,8 @@
   "net_difference",
   "section_reconciliation",
   "payment_reconciliation",
+  "section_transactions",
+  "transactions",
   "notes"
  ],
  "fields": [
@@ -132,6 +134,18 @@
    "options": "Van Shift Payment Reconciliation"
   },
   {
+   "fieldname": "section_transactions",
+   "fieldtype": "Section Break",
+   "label": "Transactions"
+  },
+  {
+   "description": "The exact Sales Order / Payment Entry / Van Expense Log records summed into this shift's totals — a durable audit trail, since totals are computed by date+owner and could otherwise be re-derived differently later if a same-day record changes.",
+   "fieldname": "transactions",
+   "fieldtype": "Table",
+   "label": "Transactions",
+   "options": "Van Shift Transaction"
+  },
+  {
    "fieldname": "notes",
    "fieldtype": "Small Text",
    "label": "Notes"
@@ -171,11 +185,9 @@
    "write": 1
   },
   {
-   "create": 1,
    "email": 1,
    "print": 1,
    "read": 1,
-   "submit": 1,
    "role": "Van Sales Driver"
   }
  ],

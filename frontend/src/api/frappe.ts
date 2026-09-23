@@ -18,6 +18,7 @@ import type {
   ShiftBalanceDetail,
   ShiftClosingSummary,
   PaymentReconciliationRow,
+  ItemSalesHistoryRow,
 } from '../types';
 
 let csrfTokenCache: string | undefined;
@@ -84,17 +85,59 @@ const getCurrencySymbolFallback = (currency: string | null | undefined) => {
   return CURRENCY_SYMBOLS[currency] || currency;
 };
 
+// Frappe's `_server_messages` is a JSON-encoded array of JSON-encoded
+// `{message, title, ...}` objects (double-encoded) — pull the human-readable
+// `message` out of each rather than surfacing the raw encoded string.
+function extractServerMessages(raw: unknown): string[] {
+  if (!raw) return [];
+  try {
+    const list = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((entry: unknown) => {
+        if (typeof entry !== 'string') return '';
+        try {
+          const parsed = JSON.parse(entry);
+          return typeof parsed === 'object' && parsed ? (parsed.message ?? '') : String(parsed);
+        } catch (_e) {
+          return entry;
+        }
+      })
+      .map((m) => String(m).replace(/<[^>]*>/g, '').trim())
+      .filter(Boolean);
+  } catch (_e) {
+    return [];
+  }
+}
+
+function extractErrorMessage(data: Record<string, unknown>, fallback: string): string {
+  const serverMessages = extractServerMessages(data._server_messages);
+  if (serverMessages.length) return serverMessages.join(' ');
+  if (typeof data.message === 'string' && data.message.trim()) {
+    return data.message.replace(/<[^>]*>/g, '').trim();
+  }
+  if (typeof data.exception === 'string' && data.exception.trim()) {
+    // e.g. "frappe.exceptions.PermissionError: You can only close your own shift."
+    const firstLine = data.exception.split('\n')[0];
+    return firstLine.replace(/^[\w.]+Error:\s*/, '').trim() || fallback;
+  }
+  return fallback;
+}
+
 const handleResponse = async (res: Response) => {
   if (!res.ok) {
     const text = await res.text();
+    let data: Record<string, unknown> | null = null;
     try {
-      const data = JSON.parse(text);
-      throw new Error(data._server_messages || data.message || res.statusText);
+      data = JSON.parse(text);
     } catch (_e) {
-      const plain = text.replace(/<[^>]*>?/gm, '').trim();
-      const snippet = plain ? plain.slice(0, 240) : res.statusText;
-      throw new Error(snippet || res.statusText);
+      // Response body isn't JSON — fall through to the plain-text path below.
     }
+    if (data && typeof data === 'object') {
+      throw new Error(extractErrorMessage(data, res.statusText));
+    }
+    const plain = text.replace(/<[^>]*>/g, '').trim();
+    throw new Error((plain ? plain.slice(0, 240) : '') || res.statusText);
   }
   return res.json();
 };
@@ -170,6 +213,18 @@ export async function searchCustomers(txt: string): Promise<Customer[]> {
   });
   const data = await handleResponse(res);
   return (data.data || data.message || []) as Customer[];
+}
+
+export async function createCustomer(customerName: string, mobileNo?: string): Promise<Customer> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.sales.create_customer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    credentials: 'include',
+    body: JSON.stringify({ customer_name: customerName, ...(mobileNo ? { mobile_no: mobileNo } : {}) }),
+  });
+  const data = await handleResponse(res);
+  return data.message as Customer;
 }
 
 let cachedSellingPriceList: string | null = null;
@@ -282,21 +337,6 @@ async function getDefaultWarehouse(): Promise<string | null> {
 
 const DEFAULT_SELLING_PRICE_LIST = 'Standard Selling';
 const DEFAULT_NAMING_SERIES = 'SO-';
-const DEFAULT_ORDER_TYPE = 'Sales';
-const buildPaymentSchedule = (amount: number, date: string) => [
-  {
-    doctype: 'Payment Schedule',
-    parentfield: 'payment_schedule',
-    parenttype: 'Sales Order',
-    idx: 1,
-    due_date: date,
-    invoice_portion: 100,
-    payment_amount: amount,
-    base_payment_amount: amount,
-    description: 'Full Payment',
-  },
-];
-
 export async function listItems(search?: string, customer?: string): Promise<Item[]> {
   const filters = [['is_sales_item', '=', 1], ['disabled', '=', 0]];
   const or_filters = search
@@ -309,7 +349,7 @@ export async function listItems(search?: string, customer?: string): Promise<Ite
     : undefined;
 
   const params = new URLSearchParams({
-    fields: JSON.stringify(['name as item_code', 'item_name', 'description', 'stock_uom', 'image', 'item_group']),
+    fields: JSON.stringify(['name as item_code', 'item_name', 'description', 'stock_uom', 'image', 'item_group', 'standard_rate']),
     filters: JSON.stringify(filters.map((f) => ['Item', ...f])),
     ...(or_filters ? { or_filters: JSON.stringify(or_filters.map((f) => ['Item', ...f])) } : {}),
     page_length: '40',
@@ -322,7 +362,14 @@ export async function listItems(search?: string, customer?: string): Promise<Ite
   const data = await handleResponse(res);
   const items = (data.data || data.message || []) as Item[];
 
-  const priceList = (await getSellingPriceList()) || DEFAULT_SELLING_PRICE_LIST;
+  // Prefer the driver's own Van Profile price list (their "special" pricing,
+  // e.g. "For special customers") over the global Selling Settings default —
+  // matching what createSalesOrder() already does. Falling back to the global
+  // default here was the bug: a driver assigned a special price list never
+  // actually saw their special prices in the catalog.
+  const session = await getSession().catch(() => null);
+  const globalPriceList = (await getSellingPriceList()) || DEFAULT_SELLING_PRICE_LIST;
+  const priceList = session?.driver_config?.selling_price_list || globalPriceList;
   const defaultWarehouse = await getDefaultWarehouse();
   if (!items.length) {
     return items;
@@ -351,6 +398,7 @@ export async function listItems(search?: string, customer?: string): Promise<Ite
       });
     };
 
+    // 1. Customer-specific price (negotiated per customer) — highest priority.
     if (customer) {
       await fetchPrices([
         ['Item Price', 'customer', '=', customer],
@@ -359,13 +407,28 @@ export async function listItems(search?: string, customer?: string): Promise<Ite
       ]);
     }
 
+    // 2. The driver's own ("special") price list.
     await fetchPrices([
       ['Item Price', 'price_list', '=', priceList],
       ['Item Price', 'selling', '=', 1],
       ['Item Price', 'item_code', 'in', codes],
     ]);
 
-    const missingCodes = codes.filter((c) => priceMap[c] === undefined);
+    // 3. The standard price list specifically, as the named "backup" — not
+    // just any other price list, so an unrelated/misconfigured list can't be
+    // picked up by accident.
+    let missingCodes = codes.filter((c) => priceMap[c] === undefined);
+    if (missingCodes.length && priceList !== DEFAULT_SELLING_PRICE_LIST) {
+      await fetchPrices([
+        ['Item Price', 'price_list', '=', DEFAULT_SELLING_PRICE_LIST],
+        ['Item Price', 'selling', '=', 1],
+        ['Item Price', 'item_code', 'in', missingCodes],
+      ]);
+    }
+
+    // 4. Last resort: any other selling price at all (covers the standard
+    // list itself being missing/misconfigured).
+    missingCodes = codes.filter((c) => priceMap[c] === undefined);
     if (missingCodes.length) {
       await fetchPrices([
         ['Item Price', 'selling', '=', 1],
@@ -418,63 +481,23 @@ export async function listItems(search?: string, customer?: string): Promise<Ite
 export async function createSalesOrder(payload: {
   customer: string;
   items: SalesOrderItem[];
+  discountPercent?: number;
+  discountAmount?: number;
 }): Promise<SalesOrder> {
-  const session = await getSession().catch(() => null);
-  const driverConfig = session?.driver_config;
-
-  // Prefer Van Profile / Driver Config values; fall back to global defaults.
-  const [company, globalPriceList] = await Promise.all([getDefaultCompany(), getSellingPriceList()]);
-  const priceList = driverConfig?.selling_price_list || globalPriceList;
-  const taxesAndCharges = driverConfig?.taxes_and_charges || null;
-  const profileCurrency = driverConfig?.currency || null;
-  const currency = profileCurrency || await getCompanyCurrency(company);
-  const today = new Date().toISOString().slice(0, 10);
+  // The document is assembled server-side by van_sale.van_sale.sales.create_sales_order:
+  // company, price list, currency, taxes, payment schedule and every total come from the
+  // driver's Van Profile and ERPNext's own calculation, not from this client. That is what
+  // lets the Van Sales Driver role hold read-only DocPerms on Sales Order.
   await refreshCsrfToken();
-  const netTotal = payload.items.reduce((sum, i) => sum + i.qty * (i.rate ?? 0), 0);
-  const grandTotal = netTotal;
-  const paySchedule = buildPaymentSchedule(grandTotal, today);
-
-  const res = await fetch('/api/method/frappe.client.insert', {
+  const res = await fetch('/api/method/van_sale.van_sale.sales.create_sales_order', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     credentials: 'include',
     body: JSON.stringify({
-      doc: {
-        doctype: 'Sales Order',
-        customer: payload.customer,
-        transaction_date: today,
-        delivery_date: today,
-        ...(company ? { company } : {}),
-        ...(priceList ? { selling_price_list: priceList } : {}),
-        ...(currency ? { currency, price_list_currency: currency, company_currency: currency } : {}),
-        ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : { taxes_and_charges: null, taxes: [] }),
-        conversion_rate: 1,
-        plc_conversion_rate: 1,
-        order_type: DEFAULT_ORDER_TYPE,
-        payment_terms_template: null,
-        payment_schedule: paySchedule,
-        net_total: netTotal,
-        base_net_total: netTotal,
-        total: netTotal,
-        base_total: netTotal,
-        total_net_weight: 0,
-        grand_total: grandTotal,
-        base_grand_total: grandTotal,
-        items: payload.items.map((i, idx) => ({
-          doctype: 'Sales Order Item',
-          parenttype: 'Sales Order',
-          parentfield: 'items',
-          idx: idx + 1,
-          item_code: i.item_code,
-          item_name: i.item_name,
-          qty: i.qty,
-          rate: i.rate ?? 0,
-          price_list_rate: i.price_list_rate ?? i.rate ?? 0,
-          delivery_date: today,
-          amount: i.amount ?? i.qty * (i.rate ?? 0),
-          stock_uom: i.stock_uom,
-        })),
-      },
+      customer: payload.customer,
+      items: payload.items.map((i) => ({ item_code: i.item_code, qty: i.qty, rate: i.rate ?? 0 })),
+      discount_percent: payload.discountPercent || 0,
+      discount_amount: payload.discountAmount || 0,
     }),
   });
   const data = await handleResponse(res);
@@ -491,63 +514,25 @@ export async function getSalesOrder(name: string): Promise<SalesOrder> {
   return (data.data || data.message) as SalesOrder;
 }
 
-export async function updateSalesOrder(name: string, payload: { items: SalesOrderItem[]; customer: string }) {
+export async function updateSalesOrder(
+  name: string,
+  payload: { items: SalesOrderItem[]; customer: string; discountPercent?: number; discountAmount?: number },
+): Promise<SalesOrder> {
   await refreshCsrfToken();
-  const [existing, session] = await Promise.all([
-    getSalesOrder(name).catch(() => null),
-    getSession().catch(() => null),
-  ]);
-  const driverConfig = session?.driver_config;
-  const taxesAndCharges = driverConfig?.taxes_and_charges || null;
-  const currency = await getCompanyCurrency(existing?.company);
-  const netTotal = payload.items.reduce((sum, i) => sum + i.qty * (i.rate ?? 0), 0);
-  const grandTotal = netTotal;
-  const paySchedule = buildPaymentSchedule(
-    grandTotal,
-    existing?.delivery_date || existing?.transaction_date || new Date().toISOString().slice(0, 10),
-  );
-  const res = await fetch(`/api/resource/Sales Order/${encodeURIComponent(name)}`, {
-    method: 'PUT',
+  const res = await fetch('/api/method/van_sale.van_sale.sales.update_sales_order', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     credentials: 'include',
     body: JSON.stringify({
-      selling_price_list: existing?.selling_price_list,
-      company: existing?.company,
-      naming_series: existing?.naming_series,
-      order_type: existing?.order_type || DEFAULT_ORDER_TYPE,
-      ...(currency ? { currency, price_list_currency: currency, company_currency: currency } : {}),
-      conversion_rate: 1,
-      plc_conversion_rate: 1,
-      payment_terms_template: null,
-      payment_schedule: paySchedule,
-      ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : { taxes_and_charges: null, taxes: [] }),
-      net_total: netTotal,
-      base_net_total: netTotal,
-      total: netTotal,
-      base_total: netTotal,
-      total_net_weight: 0,
-      grand_total: grandTotal,
-      base_grand_total: grandTotal,
-      items: payload.items.map((i, idx) => ({
-        doctype: 'Sales Order Item',
-        parenttype: 'Sales Order',
-        parentfield: 'items',
-        idx: idx + 1,
-        item_code: i.item_code,
-        item_name: i.item_name,
-        qty: i.qty,
-        rate: i.rate ?? 0,
-        price_list_rate: i.price_list_rate ?? i.rate ?? 0,
-        delivery_date: i.delivery_date,
-        stock_uom: i.stock_uom,
-        amount: i.amount ?? i.qty * (i.rate ?? 0),
-      })),
+      name,
       customer: payload.customer,
-      modified: existing?.modified,
+      items: payload.items.map((i) => ({ item_code: i.item_code, qty: i.qty, rate: i.rate ?? 0 })),
+      discount_percent: payload.discountPercent || 0,
+      discount_amount: payload.discountAmount || 0,
     }),
   });
   const data = await handleResponse(res);
-  return (data.data || data.message) as SalesOrder;
+  return data.message as SalesOrder;
 }
 
 export async function submitSalesOrder(name: string): Promise<SalesOrder> {
@@ -562,19 +547,65 @@ export async function submitSalesOrder(name: string): Promise<SalesOrder> {
   return (data.data || data.message) as SalesOrder;
 }
 
-export async function createSalesInvoice(salesOrder: string): Promise<string> {
+export async function getItemSalesHistory(itemCode: string, customer?: string, limit = 20): Promise<ItemSalesHistoryRow[]> {
+  const params = new URLSearchParams({
+    item_code: itemCode,
+    limit: String(limit),
+    ...(customer ? { customer } : {}),
+  });
+  const res = await fetch(`/api/method/van_sale.van_sale.sales.get_item_sales_history?${params.toString()}`, {
+    method: 'GET',
+    headers: { ...defaultHeaders() },
+    credentials: 'include',
+  });
+  const data = await handleResponse(res);
+  return (data.message || []) as ItemSalesHistoryRow[];
+}
+
+export async function createSalesInvoice(
+  salesOrder: string,
+  options?: { markAsPaid?: boolean; modeOfPayment?: string },
+): Promise<string> {
   await refreshCsrfToken();
   const res = await fetch('/api/method/van_sale.van_sale.sales.create_sales_invoice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
     credentials: 'include',
-    body: JSON.stringify({ sales_order: salesOrder }),
+    body: JSON.stringify({
+      sales_order: salesOrder,
+      ...(options?.markAsPaid
+        ? { mark_as_paid: 1, mode_of_payment: options.modeOfPayment }
+        : {}),
+    }),
   });
   const data = await handleResponse(res);
   return (data.message || data.data) as string;
 }
 
-export async function recentOrders(owner: string): Promise<SalesOrder[]> {
+export interface RecentOrdersOptions {
+  search?: string;
+  fromDate?: string;
+  toDate?: string;
+  limitStart?: number;
+  pageLength?: number;
+}
+
+export async function recentOrders(owner: string, options?: RecentOrdersOptions): Promise<SalesOrder[]> {
+  const filters: any[] = [
+    ['Sales Order', 'owner', '=', owner],
+    ['Sales Order', 'docstatus', '!=', 2],
+  ];
+  if (options?.fromDate) filters.push(['Sales Order', 'transaction_date', '>=', options.fromDate]);
+  if (options?.toDate) filters.push(['Sales Order', 'transaction_date', '<=', options.toDate]);
+
+  const search = options?.search?.trim();
+  const orFilters = search
+    ? [
+      ['Sales Order', 'customer_name', 'like', `%${search}%`],
+      ['Sales Order', 'name', 'like', `%${search}%`],
+    ]
+    : undefined;
+
   const params = new URLSearchParams({
     fields: JSON.stringify([
       'name',
@@ -586,12 +617,11 @@ export async function recentOrders(owner: string): Promise<SalesOrder[]> {
       'owner',
       'docstatus',
     ]),
-    filters: JSON.stringify([
-      ['Sales Order', 'owner', '=', owner],
-      ['Sales Order', 'docstatus', '!=', 2],
-    ]),
+    filters: JSON.stringify(filters),
+    ...(orFilters ? { or_filters: JSON.stringify(orFilters) } : {}),
     order_by: 'creation desc',
-    page_length: '20',
+    page_length: String(options?.pageLength ?? 20),
+    limit_start: String(options?.limitStart ?? 0),
   });
   const res = await fetch(`/api/resource/Sales Order?${params.toString()}`, {
     method: 'GET',
@@ -824,7 +854,10 @@ export async function getDriverSetupOptions(): Promise<DriverSetupOptions> {
   return data.message as DriverSetupOptions;
 }
 
-export async function createSalesReturn(customer: string, items: { item_code: string; qty: number }[]): Promise<string> {
+export async function createSalesReturn(
+  customer: string,
+  items: { item_code: string; qty: number; rate?: number }[],
+): Promise<string> {
   await refreshCsrfToken();
   const res = await fetch('/api/method/van_sale.van_sale.sales.create_sales_return', {
     method: 'POST',

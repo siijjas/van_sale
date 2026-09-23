@@ -55,6 +55,12 @@ def get_van_profile_options():
 			limit_page_length=200,
 			order_by="name asc",
 		),
+		"customer_groups": frappe.get_all(
+			"Customer Group",
+			fields=["name"],
+			limit_page_length=200,
+			order_by="name asc",
+		),
 		"companies": frappe.get_all(
 			"Company",
 			fields=["name", "default_currency"],
@@ -113,6 +119,7 @@ def list_van_profiles():
 			"source_warehouse",
 			"van_warehouse",
 			"delivery_route",
+			"default_cash_mode",
 			"selling_price_list",
 			"currency",
 			"taxes_and_charges",
@@ -158,6 +165,15 @@ def list_van_profiles():
 				order_by="idx asc",
 			)
 		]
+		row.allowed_customer_groups = [
+			child.customer_group
+			for child in frappe.get_all(
+				"Van Profile Customer Group",
+				filters={"parent": row.name},
+				fields=["customer_group"],
+				order_by="idx asc",
+			)
+		]
 		# Coerce booleans
 		for check_field in (
 			"allow_rate_change", "allow_discount_change", "validate_stock_on_save",
@@ -186,6 +202,7 @@ def save_van_profile(payload):
 	doc.source_warehouse = data.get("source_warehouse")
 	doc.van_warehouse = data.get("van_warehouse")
 	doc.delivery_route = data.get("delivery_route") or None
+	doc.default_cash_mode = data.get("default_cash_mode") or None
 	doc.selling_price_list = data.get("selling_price_list") or None
 	doc.currency = data.get("currency") or None
 	doc.taxes_and_charges = data.get("taxes_and_charges") or None
@@ -221,6 +238,12 @@ def save_van_profile(payload):
 	for mode in _coerce_list(data.get("allowed_payment_modes")):
 		if isinstance(mode, str) and mode.strip():
 			doc.append("allowed_payment_modes", {"mode_of_payment": mode.strip()})
+
+	# Customer groups child table (Table MultiSelect)
+	doc.set("allowed_customer_groups", [])
+	for group in _coerce_list(data.get("allowed_customer_groups")):
+		if isinstance(group, str) and group.strip():
+			doc.append("allowed_customer_groups", {"customer_group": group.strip()})
 
 	if doc.is_new():
 		doc.insert()
@@ -267,6 +290,73 @@ def assign_driver_to_profile(driver_user: str, van_profile: str):
 	return {"status": "ok", "driver_user": driver_user, "van_profile": van_profile}
 
 
+@frappe.whitelist()
+def audit_driver_roles(repair: int = 0):
+	"""Report — and optionally fix — drift between Van Profile assignments and the
+	Van Sales Driver role. Managers only; read-only unless repair is truthy.
+
+	The doctype hooks keep the two in sync from now on, but they only act on saves,
+	so anything that drifted before (or was changed straight in the User doctype)
+	needs this to reconcile. Two kinds:
+
+	- orphaned_role: holds the driver role but sits on no active Van Profile. Every
+	  van_sale endpoint already refuses them (_is_van_user() is profile-based), but
+	  the role still carries the Custom DocPerms setup.py grants it — including
+	  create/write/submit on Sales Order straight through /api/resource.
+	- missing_role: sits on an active Van Profile but lacks the role, so the REST
+	  calls the PWA makes directly (Item, Bin, Customer, Sales Order) 403 for them.
+
+	Administrator is never touched: the role is meaningless there (Administrator
+	bypasses permission checks anyway) and removing it is pure noise.
+	"""
+	_manager_only()
+	repair = _coerce_check(repair)
+
+	from van_sale.van_sale.doctype.van_profile.van_profile import (
+		DRIVER_ROLE, _active_profiles_for_driver, _grant_driver_role,
+		_revoke_driver_role_if_unassigned,
+	)
+
+	assigned_users = {
+		row.driver_user
+		for row in frappe.get_all(
+			"Van Profile Driver",
+			filters={"parenttype": "Van Profile", "parentfield": "assigned_drivers"},
+			fields=["driver_user"],
+		)
+		if row.driver_user
+	}
+	active_users = {user for user in assigned_users if _active_profiles_for_driver(user)}
+
+	role_holders = {
+		row.parent
+		for row in frappe.get_all(
+			"Has Role",
+			filters={"role": DRIVER_ROLE, "parenttype": "User"},
+			fields=["parent"],
+		)
+	} - {"Administrator"}
+
+	orphaned = sorted(role_holders - active_users)
+	missing = sorted(active_users - role_holders)
+
+	repaired = {"granted": [], "revoked": []}
+	if repair:
+		for user in missing:
+			_grant_driver_role(user)
+			repaired["granted"].append(user)
+		for user in orphaned:
+			_revoke_driver_role_if_unassigned(user)
+			repaired["revoked"].append(user)
+
+	return {
+		"orphaned_role": orphaned,
+		"missing_role": missing,
+		"active_drivers": sorted(active_users),
+		"repaired": repaired if repair else None,
+	}
+
+
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
 def _build_van_profile_payload(doc) -> dict:
@@ -278,6 +368,7 @@ def _build_van_profile_payload(doc) -> dict:
 		"source_warehouse": doc.source_warehouse,
 		"van_warehouse": doc.van_warehouse,
 		"delivery_route": doc.delivery_route,
+		"default_cash_mode": doc.default_cash_mode,
 		"selling_price_list": doc.selling_price_list,
 		"currency": doc.currency,
 		"taxes_and_charges": doc.taxes_and_charges,
@@ -306,51 +397,30 @@ def _build_van_profile_payload(doc) -> dict:
 			for row in (doc.allowed_payment_modes or [])
 			if row.mode_of_payment
 		],
+		"allowed_customer_groups": [
+			row.customer_group
+			for row in (doc.allowed_customer_groups or [])
+			if row.customer_group
+		],
 	}
 
 
 def get_van_profile_for_driver(driver_user: str) -> dict | None:
-	"""
-	Return the Van Profile payload for a given driver via reverse lookup
-	in the assigned_drivers child table.
-	"""
-	van_profile_name = frappe.db.get_value(
-		"Van Profile Driver",
-		{"driver_user": driver_user},
-		"parent",
-	)
+	"""Return the Van Profile payload for a given driver.
 
-	if not van_profile_name:
+	Resolves through the assigned_drivers child table, but only ever considers
+	ACTIVE profiles and picks deterministically (oldest first). The previous
+	version read any one assignment row and then checked is_active on it, so a
+	driver with a leftover assignment to a deactivated profile could resolve to
+	None — surfacing as "No active driver configuration found" — even while they
+	held a perfectly good active profile. VanProfile.validate() also enforces at
+	most one active profile per driver, so in practice this returns that one.
+	"""
+	from van_sale.van_sale.doctype.van_profile.van_profile import _active_profiles_for_driver
+
+	profile_names = _active_profiles_for_driver(driver_user)
+	if not profile_names:
 		return None
 
-	doc = frappe.get_doc("Van Profile", van_profile_name)
-	if not _coerce_check(doc.is_active):
-		return None
-
-	return _build_van_profile_payload(doc)
-
-
-def _clear_van_profile_cache(doc, method=None):
-	"""Clear driver config cache for all drivers assigned to this profile, and auto-assign roles."""
-	import frappe.cache_manager
-	from van_sale.van_sale.utils import _driver_cache_key, _driver_stock_cache_key
-
-	for row in doc.assigned_drivers or []:
-		if row.driver_user:
-			frappe.cache.delete_value(_driver_cache_key(row.driver_user))
-			frappe.cache.delete_value(_driver_stock_cache_key(row.driver_user))
-
-			# Auto-assign 'Van Sales Driver' role if they don't have it
-			if method == "on_update" and _coerce_check(doc.is_active):
-				_ensure_driver_role(row.driver_user)
-
-
-def _ensure_driver_role(user: str):
-	if "Van Sales Driver" not in frappe.get_roles(user):
-		try:
-			user_doc = frappe.get_doc("User", user)
-			user_doc.append("roles", {"role": "Van Sales Driver"})
-			user_doc.save(ignore_permissions=True)
-		except Exception as e:
-			frappe.log_error(f"Failed to assign Van Sales Driver role to {user}: {str(e)}")
+	return _build_van_profile_payload(frappe.get_doc("Van Profile", profile_names[0]))
 

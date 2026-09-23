@@ -19,8 +19,11 @@
   "van_warehouse",
   "section_drivers",
   "assigned_drivers",
+  "section_customers",
+  "allowed_customer_groups",
   "section_payments",
   "allowed_payment_modes",
+  "default_cash_mode",
   "section_controls",
   "daily_credit_limit",
   "low_stock_threshold",
@@ -126,6 +129,18 @@
    "options": "Van Profile Driver"
   },
   {
+   "fieldname": "section_customers",
+   "fieldtype": "Section Break",
+   "label": "Customer Access"
+  },
+  {
+   "description": "Restrict drivers on this profile to customers in these groups. Leave empty to allow all customer groups (subject to Delivery Route territory restriction, if set).",
+   "fieldname": "allowed_customer_groups",
+   "fieldtype": "Table MultiSelect",
+   "label": "Allowed Customer Groups",
+   "options": "Van Profile Customer Group"
+  },
+  {
    "fieldname": "section_payments",
    "fieldtype": "Section Break",
    "label": "Payment Methods"
@@ -135,6 +150,13 @@
    "fieldtype": "Table MultiSelect",
    "label": "Allowed Payment Modes",
    "options": "Van Profile Payment Mode"
+  },
+  {
+   "description": "The Mode of Payment treated as this van's cash drawer for shift reconciliation. Falls back to the first cash-type mode in Allowed Payment Modes, then the literal \"Cash\" record, if not set.",
+   "fieldname": "default_cash_mode",
+   "fieldtype": "Link",
+   "label": "Default Cash Mode",
+   "options": "Mode of Payment"
   },
   {
    "fieldname": "section_controls",

@@ -78,6 +78,22 @@
           </div>
         </FormSection>
 
+        <!-- Customer access -->
+        <FormSection title="Customer access" icon="users" :badge="`${form.allowed_customer_groups?.length || 0}`">
+          <p class="text-xs text-muted">Restrict drivers on this profile to customers in these groups. Leave empty to allow all groups (still subject to the delivery route above, if set).</p>
+          <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <label
+              v-for="group in options.customer_groups"
+              :key="group.name"
+              class="flex cursor-pointer items-center gap-3 rounded-2xl border p-3 transition"
+              :class="(form.allowed_customer_groups || []).includes(group.name) ? 'border-success/40 bg-success/[0.06]' : 'border-line hover:bg-card-muted'"
+            >
+              <input type="checkbox" :value="group.name" v-model="form.allowed_customer_groups" class="h-4 w-4 accent-primary" />
+              <span class="text-sm font-semibold text-foreground">{{ group.name }}</span>
+            </label>
+          </div>
+        </FormSection>
+
         <!-- Drivers -->
         <FormSection title="Assigned drivers" icon="users" :badge="`${form.assigned_drivers?.length || 0}`">
           <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -155,6 +171,11 @@
               <span class="text-sm font-semibold text-foreground">{{ mode.name }}</span>
             </label>
           </div>
+          <FormField label="Default cash mode" hint="Which mode counts as this van's cash drawer for shift reconciliation. Falls back to a cash-type mode above, then the generic &quot;Cash&quot; record, if left blank.">
+            <BaseSelect v-model="form.default_cash_mode" placeholder="Auto-detect">
+              <option v-for="mode in allowedCashModes" :key="mode.name" :value="mode.name">{{ mode.name }}</option>
+            </BaseSelect>
+          </FormField>
         </FormSection>
       </div>
     </div>
@@ -221,6 +242,7 @@ const options = ref<VanProfileOptions>({
   warehouses: [],
   payment_modes: [],
   routes: [],
+  customer_groups: [],
   companies: [],
   price_lists: [],
   tax_templates: [],
@@ -236,6 +258,7 @@ const defaultForm = (): Partial<VanProfile> => ({
   source_warehouse: '',
   van_warehouse: '',
   delivery_route: '',
+  default_cash_mode: '',
   selling_price_list: '',
   currency: '',
   taxes_and_charges: '',
@@ -255,6 +278,7 @@ const defaultForm = (): Partial<VanProfile> => ({
   cost_center: '',
   write_off_account: '',
   allowed_payment_modes: [],
+  allowed_customer_groups: [],
   assigned_drivers: [],
 });
 
@@ -270,6 +294,10 @@ const filteredWarehouses = computed(() =>
 const filteredTaxTemplates = computed(() =>
   form.value.company ? options.value.tax_templates.filter((t) => t.company === form.value.company) : options.value.tax_templates,
 );
+const allowedCashModes = computed(() => {
+  const allowed = new Set(form.value.allowed_payment_modes || []);
+  return options.value.payment_modes.filter((m) => m.type === 'Cash' && (allowed.size === 0 || allowed.has(m.name)));
+});
 
 const isValid = computed(
   () =>

@@ -1,9 +1,11 @@
 <template>
-  <div class="flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm" :class="toneClass">
+  <div class="flex items-start gap-3 rounded-2xl px-4 py-3 text-sm ring-1 ring-inset" :class="toneClass">
     <AppIcon :name="icon" :size="18" class="mt-0.5 shrink-0" />
     <div class="min-w-0 flex-1">
       <p v-if="title" class="font-semibold">{{ title }}</p>
-      <p :class="title ? 'mt-0.5 opacity-90' : 'font-medium'"><slot>{{ message }}</slot></p>
+      <p :class="title ? 'mt-0.5 text-[13px] leading-relaxed opacity-85' : 'text-[13px] font-semibold'">
+        <slot>{{ message }}</slot>
+      </p>
     </div>
   </div>
 </template>
@@ -24,10 +26,10 @@ const icon = computed(
 const toneClass = computed(
   () =>
     ({
-      info: 'border-info/25 bg-info/10 text-info',
-      success: 'border-success/25 bg-success/10 text-success',
-      warning: 'border-warning/30 bg-warning/10 text-warning',
-      danger: 'border-danger/25 bg-danger/10 text-danger',
+      info: 'bg-info/12 text-info ring-info/25',
+      success: 'bg-success/12 text-success ring-success/25',
+      warning: 'bg-warning/12 text-warning ring-warning/28',
+      danger: 'bg-danger/12 text-danger ring-danger/25',
     })[props.tone],
 );
 </script>

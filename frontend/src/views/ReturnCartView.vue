@@ -62,7 +62,8 @@ const submit = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const items = cart.value.map((line) => ({ item_code: line.item.item_code, qty: line.qty }));
+    // Send the rate the driver was shown — the server only sees the price list otherwise.
+    const items = cart.value.map((line) => ({ item_code: line.item.item_code, qty: line.qty, rate: rate(line) }));
     await api.createSalesReturn(store.customer.name, items);
     store.clearReturnCart();
     router.push({ name: 'ledger', query: { refresh: '1' } });
