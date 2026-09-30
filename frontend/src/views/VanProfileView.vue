@@ -126,6 +126,7 @@
             <ToggleRow v-model="form.allow_rate_change" label="Allow modifying item rates" />
             <ToggleRow v-model="form.allow_discount_change" label="Allow modifying discounts" />
             <ToggleRow v-model="form.allow_sale_without_stock" label="Allow selling items not in van stock" />
+            <ToggleRow v-model="form.require_open_shift" label="Require an open shift to sell, collect or log expenses" />
             <ToggleRow v-model="form.validate_stock_on_save" label="Strictly validate stock on save" />
             <ToggleRow v-model="form.allow_offline_stock_dashboard" label="Enable offline stock dashboard" />
             <ToggleRow v-model="form.ignore_pricing_rule" label="Ignore active pricing rules" />
@@ -269,6 +270,7 @@ const defaultForm = (): Partial<VanProfile> => ({
   allow_rate_change: false,
   allow_discount_change: false,
   allow_sale_without_stock: false,
+  require_open_shift: false,
   validate_stock_on_save: false,
   allow_offline_stock_dashboard: true,
   ignore_pricing_rule: false,

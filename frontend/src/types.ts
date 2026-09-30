@@ -31,6 +31,7 @@ export interface DriverConfig {
   allow_rate_change?: boolean;
   allow_discount_change?: boolean;
   allow_sale_without_stock?: boolean;
+  require_open_shift?: boolean;
   validate_stock_on_save?: boolean;
   ignore_pricing_rule?: boolean;
   disable_rounded_total?: boolean;
@@ -63,6 +64,8 @@ export interface ActiveShift {
   opening_float: number;
   balance_details: ShiftBalanceDetail[];
   notes?: string;
+  /** Opened on an earlier day and never closed — must be closed before a new shift. */
+  is_stale?: boolean;
 }
 
 export interface PaymentReconciliationRow {
@@ -75,6 +78,11 @@ export interface PaymentReconciliationRow {
 
 export interface ShiftClosingSummary {
   opening_shift: string;
+  driver: string;
+  driver_name: string;
+  shift_date: string;
+  /** Opened on an earlier day and never closed. */
+  is_stale: boolean;
   period_start: string | null;
   payment_reconciliation: PaymentReconciliationRow[];
   total_sales: number;
@@ -105,6 +113,7 @@ export interface VanProfile {
   allow_rate_change: boolean;
   allow_discount_change: boolean;
   allow_sale_without_stock: boolean;
+  require_open_shift: boolean;
   validate_stock_on_save: boolean;
   allow_offline_stock_dashboard: boolean;
   ignore_pricing_rule: boolean;

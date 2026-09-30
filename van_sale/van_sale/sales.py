@@ -2,6 +2,7 @@ import json
 import math
 import frappe
 from frappe.utils import nowdate, flt
+from van_sale.van_sale.shift import require_open_shift
 from van_sale.van_sale.utils import (
 	_coerce_check,
 	_default_company,
@@ -274,6 +275,7 @@ def _apply_order_payload(doc, customer, items, discount_percent, discount_amount
 def create_sales_order(customer: str, items, discount_percent: float = 0, discount_amount: float = 0):
 	"""Create a draft Sales Order from the driver's cart."""
 	_require_van_user()
+	require_open_shift("take an order")
 	_validate_customer_access(customer)
 
 	doc = frappe.new_doc("Sales Order")
@@ -302,6 +304,7 @@ def update_sales_order(name: str, customer: str, items, discount_percent: float 
 @frappe.whitelist()
 def submit_sales_order(name: str):
 	_require_van_user()
+	require_open_shift("submit an order")
 	doc = frappe.get_doc("Sales Order", name)
 	if not doc.has_permission("read"):
 		frappe.throw("Not permitted", frappe.PermissionError)
@@ -816,6 +819,7 @@ def create_sales_invoice(
 	delivery against the order until stock arrives.
 	"""
 	_require_van_user()
+	require_open_shift("invoice an order")
 	mark_as_paid = _coerce_check(mark_as_paid)
 	allow_without_stock = _coerce_check(allow_without_stock)
 	if mark_as_paid:
@@ -927,6 +931,7 @@ def create_sales_invoice(
 @frappe.whitelist()
 def create_sales_return(customer: str, items):
 	_require_van_user()
+	require_open_shift("take a return")
 	_validate_customer_access(customer)
 
 	from van_sale.van_sale.inventory import _parse_stock_transfer_lines

@@ -916,8 +916,9 @@ export async function openShift(balanceDetails: ShiftBalanceDetail[], notes?: st
   return data.message as ActiveShift;
 }
 
-export async function getShiftClosingSummary(): Promise<ShiftClosingSummary> {
-  const res = await fetch('/api/method/van_sale.van_sale.shift.get_shift_closing_summary', {
+export async function getShiftClosingSummary(openingShift?: string): Promise<ShiftClosingSummary> {
+  const qs = openingShift ? `?opening_shift=${encodeURIComponent(openingShift)}` : '';
+  const res = await fetch(`/api/method/van_sale.van_sale.shift.get_shift_closing_summary${qs}`, {
     method: 'GET',
     credentials: 'include',
     headers: defaultHeaders(),

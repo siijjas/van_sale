@@ -54,8 +54,15 @@
             :key="`${a.kind}-${a.reference || a.driver}-${i}`"
             :tone="a.level"
             :title="a.title"
-            :message="a.body"
-          />
+          >
+            {{ a.body }}
+            <button
+              v-if="a.kind === 'stale_shift' && a.reference"
+              type="button"
+              class="mt-1.5 block font-semibold underline underline-offset-2"
+              @click="closeShift(a.reference)"
+            >Close {{ a.reference }}</button>
+          </AppAlert>
         </div>
         <button v-if="data.alerts.length > ALERT_LIMIT" class="mt-2 text-xs font-semibold text-primary" @click="showAllAlerts = !showAllAlerts">
           {{ showAllAlerts ? 'Show fewer' : `Show all ${data.alerts.length}` }}
@@ -102,6 +109,15 @@
                 </template>
               </div>
             </div>
+            <AppButton
+              v-if="(v.shift_status === 'open' || v.shift_status === 'stale') && v.opening_shift"
+              class="mt-3"
+              :variant="v.shift_status === 'stale' ? 'warning' : 'secondary'"
+              size="sm"
+              icon="check-circle"
+              block
+              @click.stop="closeShift(v.opening_shift)"
+            >{{ v.shift_status === 'stale' ? 'Close unclosed shift' : 'Close shift' }}</AppButton>
           </AppCard>
         </div>
       </section>
@@ -115,7 +131,7 @@ import { useRouter } from 'vue-router';
 import * as api from '../api/frappe';
 import { useSessionStore } from '../stores/session';
 import type { ManagerDashboard, ManagerDashboardVan } from '../types';
-import { AppAlert, AppCard, EmptyState, KpiTile, SkeletonList, StatusBadge } from './ui';
+import { AppAlert, AppButton, AppCard, EmptyState, KpiTile, SkeletonList, StatusBadge } from './ui';
 
 defineProps<{ greeting: string; firstName: string }>();
 
@@ -158,6 +174,7 @@ const reportRoute = (v: ManagerDashboardVan) => {
   if (v.shift_status === 'closed' && v.closing_shift) return { name: 'shift-report-y', params: { name: v.closing_shift } };
   return null;
 };
+const closeShift = (opening: string) => router.push({ name: 'shift-close', query: { opening } });
 const openVan = (v: ManagerDashboardVan) => {
   const to = reportRoute(v);
   if (to) router.push(to);

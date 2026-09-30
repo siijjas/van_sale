@@ -9,22 +9,27 @@ Opening -> Closing shift pair:
   EOD behaviour) and reconciles each payment mode: opening float, expected
   (from collections), counted (entered by the driver) and the difference.
 
-This is the "lightweight" model: transactions are NOT stamped with the shift and
-selling is NOT blocked when no shift is open. Aggregation is purely by date, at
-close time — but each closing keeps a durable `transactions` reference list (the
-exact Sales Order/Payment Entry/Van Expense Log names it summed) so the totals can
-be re-verified later even if a same-day record changes after the shift closes.
+This is the "lightweight" model: transactions are NOT stamped with the shift, and
+selling is only blocked without an open shift when the Van Profile turns on
+require_open_shift (see require_open_shift()). Aggregation is purely by the shift's
+date, at close time — but each closing keeps a durable `transactions` reference list
+(the exact Sales Order/Sales Invoice/Payment Entry/Van Expense Log names it summed)
+so the totals can be re-verified later even if a record changes after the shift closes.
+
+A shift left open past midnight is closed as the day it was opened, and blocks
+opening a new shift until it is. Managers can close any driver's shift.
 """
 
 import json
 
 import frappe
-from frappe.utils import flt, now_datetime, nowdate
+from frappe.utils import flt, formatdate, getdate, now_datetime, nowdate
 
 from van_sale.van_sale.utils import (
 	_default_company,
 	_get_allowed_payment_modes,
 	_get_driver_config,
+	_is_manager,
 	_require_van_user,
 )
 
@@ -70,27 +75,62 @@ def _default_cash_mode(cash_modes: set[str], user: str) -> str:
 	return "Cash"
 
 
-def _find_open_shift(user: str) -> str | None:
-	"""Return the name of the user's open Van Shift Opening for today, if any."""
+def _find_open_shift(user: str, today_only: bool = True) -> str | None:
+	"""The user's open Van Shift Opening.
+
+	By default only one opened today. With today_only=False, the oldest one still open
+	from any day: a shift left open past midnight is what the driver has to close
+	before they can open another.
+	"""
+	filters = {"driver": user, "status": "Open", "docstatus": 1}
+	if today_only:
+		filters["shift_date"] = nowdate()
 	return frappe.db.get_value(
-		"Van Shift Opening",
-		{
-			"driver": user,
-			"shift_date": nowdate(),
-			"status": "Open",
-			"docstatus": 1,
-		},
-		"name",
+		"Van Shift Opening", filters, "name", order_by="shift_date asc, creation asc"
 	)
 
 
-def _todays_payment_entries(user: str) -> list:
-	"""Today's submitted receive Payment Entries for the user."""
+def _check_can_close(opening_doc):
+	"""A driver closes their own shift; a manager can close anyone's (e.g. a shift
+	the driver forgot, or a driver who is away)."""
+	user = frappe.session.user
+	if opening_doc.driver != user and user != "Administrator" and not _is_manager():
+		frappe.throw("You can only close your own shift.", frappe.PermissionError)
+	if opening_doc.docstatus != 1 or opening_doc.status != "Open":
+		frappe.throw("This shift is already closed.")
+
+
+def require_open_shift(action: str, user: str | None = None):
+	"""Enforce the Van Profile's require_open_shift setting before a driver records
+	sales, collections, returns or expenses.
+
+	Only a shift opened today counts: one left open from an earlier day has to be
+	closed first, otherwise today's activity would land on no shift at all.
+	`action` completes the sentence "Open your shift before you ...".
+	"""
+	user = user or frappe.session.user
+	config = _get_driver_config(user=user, required=False)
+	if not config or not config.get("require_open_shift"):
+		return
+	if _find_open_shift(user):
+		return
+	stale = _find_open_shift(user, today_only=False)
+	if stale:
+		since = formatdate(frappe.db.get_value("Van Shift Opening", stale, "shift_date"))
+		frappe.throw(
+			f"Close your shift from {since} and open today's before you {action}.",
+			title="Shift required",
+		)
+	frappe.throw(f"Open your shift before you {action}.", title="Shift required")
+
+
+def _shift_payment_entries(user: str, date) -> list:
+	"""The user's submitted receive Payment Entries on the shift's date."""
 	return frappe.get_all(
 		"Payment Entry",
 		filters={
 			"docstatus": 1,
-			"posting_date": nowdate(),
+			"posting_date": date,
 			"payment_type": "Receive",
 			"owner": user,
 		},
@@ -125,7 +165,7 @@ def _compute_closing(opening: dict) -> dict:
 		for row in (opening.get("balance_details") or [])
 		if row.get("mode_of_payment")
 	}
-	payment_entries = _todays_payment_entries(user)
+	payment_entries = _shift_payment_entries(user, today)
 	collections = _collections_by_mode(payment_entries)
 
 	# Sales = submitted Sales Orders for today (single source of truth, matching the
@@ -253,6 +293,7 @@ def _serialize_opening(doc) -> dict:
 			for r in (doc.balance_details or [])
 		],
 		"notes": doc.notes,
+		"is_stale": doc.status == "Open" and getdate(doc.shift_date) < getdate(nowdate()),
 	}
 
 
@@ -260,9 +301,13 @@ def _serialize_opening(doc) -> dict:
 
 @frappe.whitelist()
 def get_active_shift():
-	"""Return the current user's open shift for today, or None."""
+	"""The current user's open shift, or None.
+
+	A shift left open from an earlier day comes back (with is_stale) ahead of anything
+	else, so the app sends the driver to close it before they carry on.
+	"""
 	_require_van_user()
-	name = _find_open_shift(frappe.session.user)
+	name = _find_open_shift(frappe.session.user, today_only=False)
 	if not name:
 		return None
 	return _serialize_opening(frappe.get_doc("Van Shift Opening", name))
@@ -274,8 +319,14 @@ def open_shift(balance_details, notes: str = None):
 	_require_van_user()
 	user = frappe.session.user
 
-	if _find_open_shift(user):
-		frappe.throw("You already have an open shift for today. Close it before opening a new one.")
+	pending = _find_open_shift(user, today_only=False)
+	if pending:
+		pending_date = frappe.db.get_value("Van Shift Opening", pending, "shift_date")
+		if getdate(pending_date) == getdate(nowdate()):
+			frappe.throw("You already have an open shift for today. Close it before opening a new one.")
+		frappe.throw(
+			f"You have an unclosed shift from {formatdate(pending_date)}. Close it before opening a new one."
+		)
 
 	config = _get_driver_config(required=False) or {}
 	doc = frappe.new_doc("Van Shift Opening")
@@ -313,17 +364,21 @@ def open_shift(balance_details, notes: str = None):
 
 
 @frappe.whitelist()
-def get_shift_closing_summary():
+def get_shift_closing_summary(opening_shift: str | None = None):
 	"""Pre-fill the closing screen: per-mode reconciliation rows + headline totals.
 
+	Without opening_shift, the caller's own oldest open shift (a forgotten one from an
+	earlier day first). A manager passes opening_shift to close a driver's shift.
 	Counted (closing_amount) defaults to expected; the driver edits it on screen.
 	"""
 	_require_van_user()
-	name = _find_open_shift(frappe.session.user)
+	name = opening_shift or _find_open_shift(frappe.session.user, today_only=False)
 	if not name:
 		frappe.throw("No open shift found. Open a shift before closing one.")
+	opening_doc = frappe.get_doc("Van Shift Opening", name)
+	_check_can_close(opening_doc)
 
-	opening = _serialize_opening(frappe.get_doc("Van Shift Opening", name))
+	opening = _serialize_opening(opening_doc)
 	computed = _compute_closing(opening)
 
 	for row in computed["rows"]:
@@ -332,6 +387,10 @@ def get_shift_closing_summary():
 
 	return {
 		"opening_shift": name,
+		"driver": opening_doc.driver,
+		"driver_name": frappe.utils.get_fullname(opening_doc.driver),
+		"shift_date": opening["shift_date"],
+		"is_stale": opening["is_stale"],
 		"period_start": opening["period_start"],
 		"payment_reconciliation": computed["rows"],
 		"total_sales": computed["total_sales"],
@@ -349,10 +408,7 @@ def close_shift(opening_shift: str, reconciliation, notes: str = None):
 	user = frappe.session.user
 
 	opening_doc = frappe.get_doc("Van Shift Opening", opening_shift)
-	if opening_doc.driver != user:
-		frappe.throw("You can only close your own shift.", frappe.PermissionError)
-	if opening_doc.status != "Open":
-		frappe.throw("This shift is already closed.")
+	_check_can_close(opening_doc)
 
 	opening = _serialize_opening(opening_doc)
 	# Recompute opening/expected server-side; never trust the client for those.
@@ -368,8 +424,12 @@ def close_shift(opening_shift: str, reconciliation, notes: str = None):
 
 	doc = frappe.new_doc("Van Shift Closing")
 	doc.opening_shift = opening_shift
-	doc.driver = user
-	doc.shift_date = nowdate()
+	# The shift's own driver and date, not whoever closes it or when: a manager can close
+	# a driver's shift, and a forgotten shift closes as the day it was opened.
+	doc.driver = opening_doc.driver
+	doc.shift_date = opening_doc.shift_date
+	if user != opening_doc.driver:
+		doc.closed_by = user
 	doc.status = "Closed"
 	doc.company = opening_doc.company
 	doc.van_profile = opening_doc.van_profile
@@ -404,7 +464,7 @@ def close_shift(opening_shift: str, reconciliation, notes: str = None):
 		doc.append("transactions", txn)
 
 	# Same rationale as open_shift(): authorization is already enforced above
-	# (_require_van_user(), the "own shift only" ownership check, and driver-scoped
+	# (_require_van_user(), _check_can_close() — own shift, or a manager — and driver-scoped
 	# amounts recomputed server-side by _compute_closing), so we bypass the DocPerm/
 	# has_permission layer entirely rather than depending on it to line up exactly.
 	doc.flags.ignore_permissions = True

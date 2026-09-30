@@ -266,7 +266,7 @@ def get_x_report(opening_shift: str | None = None):
 	"""X report for the given open shift, or the caller's own open shift today."""
 	_require_van_user()
 	if not opening_shift:
-		opening_shift = _find_open_shift(frappe.session.user)
+		opening_shift = _find_open_shift(frappe.session.user, today_only=False)
 		if not opening_shift:
 			frappe.throw("No open shift found. Open a shift to run an X report.")
 	doc = frappe.get_doc("Van Shift Opening", opening_shift)

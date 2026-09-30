@@ -9,6 +9,7 @@
  "field_order": [
   "opening_shift",
   "driver",
+  "closed_by",
   "shift_date",
   "status",
   "company",
@@ -45,6 +46,14 @@
    "label": "Driver",
    "options": "User",
    "reqd": 1
+  },
+  {
+   "description": "Who closed the shift, when not the driver themselves (e.g. a manager closing a forgotten shift).",
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Closed By",
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "shift_date",
@@ -154,7 +163,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-09-30 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Van Sale",
  "name": "Van Shift Closing",

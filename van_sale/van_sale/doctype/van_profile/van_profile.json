@@ -31,6 +31,7 @@
   "allow_rate_change",
   "allow_discount_change",
   "allow_sale_without_stock",
+  "require_open_shift",
   "validate_stock_on_save",
   "allow_offline_stock_dashboard",
   "section_pricing",
@@ -200,6 +201,13 @@
   },
   {
    "default": "0",
+   "description": "Block orders, invoices, payments, returns and expenses until the driver has opened today's shift.",
+   "fieldname": "require_open_shift",
+   "fieldtype": "Check",
+   "label": "Require Open Shift"
+  },
+  {
+   "default": "0",
    "fieldname": "validate_stock_on_save",
    "fieldtype": "Check",
    "label": "Validate Stock on Save"
@@ -297,7 +305,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-29 00:00:00.000000",
+ "modified": "2026-09-30 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Van Sale",
  "name": "Van Profile",

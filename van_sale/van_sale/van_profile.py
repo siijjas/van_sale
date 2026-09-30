@@ -129,6 +129,7 @@ def list_van_profiles():
 			"allow_rate_change",
 			"allow_discount_change",
 			"allow_sale_without_stock",
+			"require_open_shift",
 			"validate_stock_on_save",
 			"allow_offline_stock_dashboard",
 			"ignore_pricing_rule",
@@ -177,7 +178,7 @@ def list_van_profiles():
 		]
 		# Coerce booleans
 		for check_field in (
-			"allow_rate_change", "allow_discount_change", "allow_sale_without_stock", "validate_stock_on_save",
+			"allow_rate_change", "allow_discount_change", "allow_sale_without_stock", "require_open_shift", "validate_stock_on_save",
 			"allow_offline_stock_dashboard", "ignore_pricing_rule", "disable_rounded_total",
 			"is_active",
 		):
@@ -213,6 +214,7 @@ def save_van_profile(payload):
 	doc.allow_rate_change = 1 if _coerce_check(data.get("allow_rate_change")) else 0
 	doc.allow_discount_change = 1 if _coerce_check(data.get("allow_discount_change")) else 0
 	doc.allow_sale_without_stock = 1 if _coerce_check(data.get("allow_sale_without_stock")) else 0
+	doc.require_open_shift = 1 if _coerce_check(data.get("require_open_shift")) else 0
 	doc.validate_stock_on_save = 1 if _coerce_check(data.get("validate_stock_on_save")) else 0
 	doc.allow_offline_stock_dashboard = 1 if _coerce_check(data.get("allow_offline_stock_dashboard", True)) else 0
 	doc.ignore_pricing_rule = 1 if _coerce_check(data.get("ignore_pricing_rule")) else 0
@@ -380,6 +382,7 @@ def _build_van_profile_payload(doc) -> dict:
 		"allow_rate_change": _coerce_check(doc.allow_rate_change),
 		"allow_discount_change": _coerce_check(doc.allow_discount_change),
 		"allow_sale_without_stock": _coerce_check(doc.allow_sale_without_stock),
+		"require_open_shift": _coerce_check(doc.require_open_shift),
 		"validate_stock_on_save": _coerce_check(doc.validate_stock_on_save),
 		"allow_offline_stock_dashboard": _coerce_check(doc.allow_offline_stock_dashboard),
 		"ignore_pricing_rule": _coerce_check(doc.ignore_pricing_rule),

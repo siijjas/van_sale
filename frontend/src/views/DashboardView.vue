@@ -2,6 +2,7 @@
   <WorkspacePage width="default">
     <ManagerDashboard v-if="store.isManager" :greeting="greeting" :first-name="firstName">
       <AppAlert v-if="setupMessage" tone="warning" :message="setupMessage" />
+      <AppAlert v-if="shiftNotice" tone="warning" :title="shiftNotice.title" :message="shiftNotice.body" />
       <QuickActions :actions="actions" />
     </ManagerDashboard>
 
@@ -23,13 +24,14 @@
             <span v-if="driverConfig?.delivery_route">{{ driverConfig.delivery_route }}</span>
           </div>
           <div v-if="activeShift" class="mt-3.5 inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold">
-            <span class="h-[7px] w-[7px] rounded-full bg-success"></span>
-            Shift open{{ shiftSince ? ` since ${shiftSince}` : '' }}
+            <span class="h-[7px] w-[7px] rounded-full" :class="activeShift.is_stale ? 'bg-warning' : 'bg-success'"></span>
+            {{ activeShift.is_stale ? `Unclosed shift from ${shiftDay(activeShift.shift_date)}` : `Shift open${shiftSince ? ` since ${shiftSince}` : ''}` }}
           </div>
         </div>
       </div>
 
       <AppAlert v-if="setupMessage" tone="warning" :message="setupMessage" />
+      <AppAlert v-if="shiftNotice" tone="warning" :title="shiftNotice.title" :message="shiftNotice.body" />
 
       <QuickActions :actions="actions" />
 
@@ -125,17 +127,42 @@ const setupMessage = computed(() => {
   return '';
 });
 
+// A shift left open from an earlier day has to be closed first; with the Van Profile's
+// require_open_shift, selling also waits for today's shift. The server enforces the
+// same rule (shift.require_open_shift) — this just gets the driver there sooner.
+const requireShift = computed(() => !!driverConfig.value?.require_open_shift);
+const needsShift = computed(() => requireShift.value && (!activeShift.value || !!activeShift.value.is_stale));
+const shiftNotice = computed(() => {
+  if (loading.value) return null;
+  if (activeShift.value?.is_stale) {
+    return {
+      title: `Your shift from ${shiftDay(activeShift.value.shift_date)} was never closed`,
+      body: requireShift.value
+        ? 'Close it, then open today\'s shift to start selling.'
+        : 'Close it now so that day\'s cash is reconciled. You can\'t open a new shift until you do.',
+    };
+  }
+  if (requireShift.value && !activeShift.value) {
+    return { title: 'Open your shift to start selling', body: 'Orders, payments, returns and expenses need an open shift.' };
+  }
+  return null;
+});
+const gated = (go: () => void) => () => {
+  if (!needsShift.value) return go();
+  router.push({ name: activeShift.value?.is_stale ? 'shift-close' : 'shift-open' });
+};
+
 const actions = computed(() => {
   const list: QuickAction[] = [
-    { label: 'New Order', icon: 'cart', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'customers', query: { redirect: 'order' } }) },
-    { label: 'Payment', icon: 'wallet', accent: 'bg-success/12 text-success', go: () => router.push({ name: 'customers', query: { redirect: 'payment' } }) },
+    { label: 'New Order', icon: 'cart', accent: 'bg-primary/12 text-primary', go: gated(() => router.push({ name: 'customers', query: { redirect: 'order' } })) },
+    { label: 'Payment', icon: 'wallet', accent: 'bg-success/12 text-success', go: gated(() => router.push({ name: 'customers', query: { redirect: 'payment' } })) },
   ];
   if (driverConfig.value || store.isManager) {
     list.push({ label: 'Load Stock', icon: 'truck', accent: 'bg-warning/15 text-warning', go: () => router.push({ name: 'stock-transfer' }) });
   }
   list.push(
-    { label: 'Return', icon: 'rotate-ccw', accent: 'bg-danger/12 text-danger', go: () => router.push({ name: 'customers', query: { redirect: 'return' } }) },
-    { label: 'Expense', icon: 'file-text', accent: 'bg-info/12 text-info', go: () => router.push({ name: 'expenses' }) },
+    { label: 'Return', icon: 'rotate-ccw', accent: 'bg-danger/12 text-danger', go: gated(() => router.push({ name: 'customers', query: { redirect: 'return' } })) },
+    { label: 'Expense', icon: 'file-text', accent: 'bg-info/12 text-info', go: gated(() => router.push({ name: 'expenses' })) },
   );
   if (activeShift.value) {
     list.push({ label: 'Close Shift', icon: 'check-circle', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'shift-close' }) });
@@ -155,6 +182,8 @@ const activeShift = ref<ActiveShift | null>(null);
 const loading = ref(true);
 
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const shiftDay = (s: string) =>
+  new Date(`${s}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 const shiftSince = computed(() => {
   const ts = activeShift.value?.period_start;
   if (!ts) return '';

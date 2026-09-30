@@ -1,6 +1,7 @@
 import json
 import frappe
 from frappe.utils import flt
+from van_sale.van_sale.shift import require_open_shift
 from van_sale.van_sale.utils import (
 	_ensure_driver_mode_allowed,
 	_get_allowed_payment_modes,
@@ -166,6 +167,7 @@ def create_payment_entry(
 	sales_order: str = None,
 ):
 	_require_van_user()
+	require_open_shift("collect a payment")
 	_validate_customer_access(customer)
 	# Enforce the per-driver payment mode allowlist
 	_ensure_driver_mode_allowed(mode_of_payment)
@@ -295,6 +297,7 @@ def get_route_expenses():
 @frappe.whitelist()
 def submit_route_expense(expense_type: str, amount: float, notes: str = None):
 	_require_van_user()
+	require_open_shift("log an expense")
 	user = frappe.session.user
 	from frappe.utils import nowdate
 	today = nowdate()

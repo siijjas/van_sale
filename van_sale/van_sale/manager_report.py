@@ -445,7 +445,7 @@ def get_manager_dashboard():
 		if old:
 			if row["shift_status"] == "none":
 				row["shift_status"] = "stale"
-				row["opening_shift"] = old[-1].name
+				row["opening_shift"] = old[0].name  # the oldest has to close first
 			since = frappe.utils.formatdate(old[0].shift_date)
 			alerts.append({
 				"level": "warning",
@@ -456,8 +456,9 @@ def get_manager_dashboard():
 					f"{info['driver_name']} has a shift still open from {since}" if len(old) == 1
 					else f"{info['driver_name']} has {len(old)} shifts still open, the oldest from {since}"
 				),
-				"body": "The app can only close today's shift, so these have to be closed from the desk: "
-				+ ", ".join(o.name for o in old) + ".",
+				"body": "Close it to reconcile that day's cash; the driver can't open a new shift until it is."
+				if len(old) == 1
+				else "Close them oldest first to reconcile each day's cash: " + ", ".join(o.name for o in old) + ".",
 			})
 		if closing and abs(flt(closing.net_difference)) >= 0.005:
 			alerts.append({

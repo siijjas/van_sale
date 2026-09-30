@@ -3,6 +3,14 @@
     <SkeletonList v-if="loading" :rows="3" height="7rem" />
 
     <div v-else-if="summary" class="space-y-5 pb-28">
+      <AppAlert
+        v-if="summary.is_stale || !isOwnShift"
+        tone="warning"
+        :title="closingTitle"
+        :message="summary.is_stale
+          ? 'This shift was never closed. It closes as that day: the figures below are that day\'s sales, collections and expenses. Count the cash that belongs to it.'
+          : 'You are closing this shift on the driver\'s behalf. The closing records that you closed it.'"
+      />
       <div class="grid grid-cols-2 gap-3">
         <KpiTile label="Total sales" :value="`${currency} ${fmt(summary.total_sales)}`" icon="cart" tone="primary" />
         <KpiTile label="Collections" :value="`${currency} ${fmt(summary.total_collections)}`" icon="wallet" tone="success" />
@@ -72,7 +80,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api/frappe';
 import { useSessionStore } from '../stores/session';
 import type { ShiftClosingSummary, PaymentReconciliationRow } from '../types';
@@ -81,6 +89,7 @@ import { AppCard, AppButton, AppAlert, KpiTile, FormField, BaseInput, BaseTextar
 
 const store = useSessionStore();
 const router = useRouter();
+const route = useRoute();
 const currency = computed(() => store.currencyDisplay);
 
 const loading = ref(true);
@@ -94,10 +103,19 @@ const notes = ref('');
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const diff = (row: PaymentReconciliationRow) => (Number(row.closing_amount) || 0) - row.expected_amount;
 const netDifference = computed(() => rows.value.reduce((sum, r) => sum + diff(r), 0));
+const isOwnShift = computed(() => !summary.value || summary.value.driver === store.session?.user);
+const shiftDay = (s: string) =>
+  new Date(`${s}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+const closingTitle = computed(() => {
+  const s = summary.value!;
+  const who = isOwnShift.value ? 'Your' : `${s.driver_name}'s`;
+  return s.is_stale ? `${who} shift from ${shiftDay(s.shift_date)} is still open` : `Closing ${s.driver_name}'s shift`;
+});
 
 const load = async () => {
   try {
-    summary.value = await api.getShiftClosingSummary();
+    // ?opening= lets a manager close a specific driver's shift (from the fleet dashboard).
+    summary.value = await api.getShiftClosingSummary((route.query.opening as string) || undefined);
     rows.value = summary.value.payment_reconciliation.map((r) => ({ ...r }));
   } catch (e: any) {
     error.value = e?.message || 'No open shift to close.';
