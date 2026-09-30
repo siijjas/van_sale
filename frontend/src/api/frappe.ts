@@ -968,8 +968,66 @@ export async function submitRouteExpense(expenseType: string, amount: number, no
   return data.message;
 }
 
-export function downloadPdf(doctype: string, name: string) {
-  const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}&format=Standard&no_letterhead=0`;
+export async function getXReport(openingShift?: string): Promise<import('../types').ShiftReport> {
+  const qs = openingShift ? `?opening_shift=${encodeURIComponent(openingShift)}` : '';
+  const res = await fetch(`/api/method/van_sale.van_sale.shift_report.get_x_report${qs}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message;
+}
+
+export async function getYReport(closingShift: string): Promise<import('../types').ShiftReport> {
+  const res = await fetch(
+    `/api/method/van_sale.van_sale.shift_report.get_y_report?closing_shift=${encodeURIComponent(closingShift)}`,
+    { method: 'GET', credentials: 'include', headers: defaultHeaders() },
+  );
+  const data = await handleResponse(res);
+  return data.message;
+}
+
+export async function getShiftClosings(): Promise<import('../types').ShiftClosingListRow[]> {
+  const res = await fetch('/api/method/van_sale.van_sale.shift_report.get_shift_closings', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message || [];
+}
+
+// ─── Manager reports ─────────────────────────────────────────────────────────
+
+async function getMethod<T>(method: string, params: Record<string, string | undefined> = {}): Promise<T> {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter((e): e is [string, string] => Boolean(e[1])),
+  ).toString();
+  const res = await fetch(`/api/method/${method}${qs ? `?${qs}` : ''}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message as T;
+}
+
+export const getManagerDashboard = () =>
+  getMethod<import('../types').ManagerDashboard>('van_sale.van_sale.manager_report.get_manager_dashboard');
+
+export const getFleet = () => getMethod<import('../types').FleetOptions>('van_sale.van_sale.manager_report.get_fleet');
+
+export const getPeriodReport = (fromDate: string, toDate: string, driver?: string, vanProfile?: string) =>
+  getMethod<import('../types').PeriodReport>('van_sale.van_sale.manager_report.get_period_report', {
+    from_date: fromDate,
+    to_date: toDate,
+    driver,
+    van_profile: vanProfile,
+  });
+
+export function downloadPdf(doctype: string, name: string, format = 'Standard') {
+  const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}&format=${encodeURIComponent(format)}&no_letterhead=0`;
   window.open(url, '_blank');
 }
 

@@ -1,6 +1,11 @@
 <template>
   <WorkspacePage width="default">
-    <div class="space-y-6">
+    <ManagerDashboard v-if="store.isManager" :greeting="greeting" :first-name="firstName">
+      <AppAlert v-if="setupMessage" tone="warning" :message="setupMessage" />
+      <QuickActions :actions="actions" />
+    </ManagerDashboard>
+
+    <div v-else class="space-y-6">
       <!-- Greeting + hero collection KPI — flat brand slab, identical in both themes -->
       <div class="relative overflow-hidden rounded-3xl bg-[#0D3F41] p-5 text-white shadow-raised md:p-6">
         <div class="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-primary/15"></div>
@@ -26,23 +31,7 @@
 
       <AppAlert v-if="setupMessage" tone="warning" :message="setupMessage" />
 
-      <!-- Quick actions -->
-      <section>
-        <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Quick actions</p>
-        <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <button
-            v-for="a in actions"
-            :key="a.label"
-            class="focus-ring flex min-h-touch-xl flex-col items-start gap-3 rounded-3xl border border-line bg-card p-4 text-left shadow-card transition hover:border-line-strong hover:shadow-raised active:scale-[0.97]"
-            @click="a.go"
-          >
-            <span class="flex h-11 w-11 items-center justify-center rounded-2xl" :class="a.accent">
-              <AppIcon :name="a.icon" :size="22" />
-            </span>
-            <span class="text-sm font-bold text-foreground">{{ a.label }}</span>
-          </button>
-        </div>
-      </section>
+      <QuickActions :actions="actions" />
 
       <!-- Today's performance -->
       <section>
@@ -109,7 +98,9 @@ import { useSessionStore } from '../stores/session';
 import * as api from '../api/frappe';
 import type { SalesOrder, ActiveShift } from '../types';
 import WorkspacePage from '../components/WorkspacePage.vue';
-import { AppCard, AppAlert, AppIcon, KpiTile, StatusBadge, SkeletonList, EmptyState } from '../components/ui';
+import ManagerDashboard from '../components/ManagerDashboard.vue';
+import QuickActions, { type QuickAction } from '../components/QuickActions.vue';
+import { AppCard, AppAlert, KpiTile, StatusBadge, SkeletonList, EmptyState } from '../components/ui';
 
 const store = useSessionStore();
 const router = useRouter();
@@ -135,7 +126,7 @@ const setupMessage = computed(() => {
 });
 
 const actions = computed(() => {
-  const list = [
+  const list: QuickAction[] = [
     { label: 'New Order', icon: 'cart', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'customers', query: { redirect: 'order' } }) },
     { label: 'Payment', icon: 'wallet', accent: 'bg-success/12 text-success', go: () => router.push({ name: 'customers', query: { redirect: 'payment' } }) },
   ];
@@ -150,6 +141,10 @@ const actions = computed(() => {
     list.push({ label: 'Close Shift', icon: 'check-circle', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'shift-close' }) });
   } else {
     list.push({ label: 'Open Shift', icon: 'play-circle', accent: 'bg-success/12 text-success', go: () => router.push({ name: 'shift-open' }) });
+  }
+  list.push({ label: 'Shift Reports', icon: 'activity', accent: 'bg-info/12 text-info', go: () => router.push({ name: 'shift-reports' }) });
+  if (store.isManager) {
+    list.push({ label: 'Reports', icon: 'list', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'reports' }) });
   }
   return list;
 });

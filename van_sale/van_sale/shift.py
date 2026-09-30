@@ -113,8 +113,12 @@ def _compute_closing(opening: dict) -> dict:
 	The driver-entered counted amounts are NOT part of this — they are layered on
 	top in get_shift_closing_summary (default = expected) and close_shift (actual).
 	"""
-	user = frappe.session.user
-	today = nowdate()
+	# The opening's own driver and date rather than the session user and today: the
+	# same thing in close_shift()/get_shift_closing_summary(), which only ever reach an
+	# opening the caller owns dated today, but it lets a manager's X report
+	# (shift_report.py) compute another driver's open shift correctly.
+	user = opening.get("driver") or frappe.session.user
+	today = opening.get("shift_date") or nowdate()
 
 	opening_floats: dict[str, float] = {
 		row.get("mode_of_payment"): flt(row.get("opening_amount"))
@@ -143,6 +147,15 @@ def _compute_closing(opening: dict) -> dict:
 	)
 	total_expenses = flt(sum(flt(e.amount) for e in expenses))
 
+	# Invoices and credit notes don't feed any closing total (sales are counted on the
+	# Sales Order), but recording them lets the Y report break down invoiced vs returned
+	# from the same frozen list as everything else.
+	sales_invoices = frappe.get_all(
+		"Sales Invoice",
+		filters={"docstatus": 1, "posting_date": today, "owner": user},
+		fields=["name", "grand_total", "posting_date"],
+	)
+
 	transactions = (
 		[
 			{
@@ -152,6 +165,15 @@ def _compute_closing(opening: dict) -> dict:
 				"amount": flt(so.grand_total),
 			}
 			for so in sales_orders
+		]
+		+ [
+			{
+				"reference_doctype": "Sales Invoice",
+				"reference_name": si.name,
+				"posting_date": si.posting_date,
+				"amount": flt(si.grand_total),
+			}
+			for si in sales_invoices
 		]
 		+ [
 			{

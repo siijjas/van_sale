@@ -121,6 +121,7 @@ const navItems = computed<NavItem[]>(() => {
   }
 
   if (store.isManager) {
+    items.push({ name: 'reports', names: ['reports'], label: 'Reports', to: { name: 'reports' }, icon: 'list' });
     items.push({ name: 'van-profiles', names: ['van-profiles'], label: 'Profiles', to: { name: 'van-profiles' }, icon: 'user' });
     items.push({ name: 'settings', names: ['settings'], label: 'Settings', to: { name: 'settings' }, icon: 'settings' });
   }

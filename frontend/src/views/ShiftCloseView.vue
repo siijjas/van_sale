@@ -116,9 +116,9 @@ const submit = async () => {
       ...r,
       closing_amount: Number(r.closing_amount) || 0,
     }));
-    await api.closeShift(summary.value.opening_shift, payload, notes.value);
-    successMsg.value = 'Shift closed. Redirecting…';
-    setTimeout(() => router.push('/'), 1200);
+    const closed = await api.closeShift(summary.value.opening_shift, payload, notes.value);
+    successMsg.value = 'Shift closed. Opening your Y report…';
+    setTimeout(() => router.replace({ name: 'shift-report-y', params: { name: closed.name } }), 1200);
   } catch (e: any) {
     error.value = e?.message || 'Failed to close shift';
   } finally {

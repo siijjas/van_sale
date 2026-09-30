@@ -1,0 +1,154 @@
+{#- Shared body of the "Van Shift X Report" / "Van Shift Y Report" print formats.
+    Expects `doc` (a Van Shift Opening or Van Shift Closing). Report data comes from
+    van_sale.van_sale.shift_report.get_shift_report_for_print (jinja hook). -#}
+{%- set r = get_shift_report_for_print(doc.doctype, doc.name) -%}
+
+<style>
+	.vs-report { font-size: 11px; color: #111; }
+	.vs-report h2 { font-size: 18px; margin: 0 0 2px; }
+	.vs-report h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 16px 0 6px; border-bottom: 1px solid #333; padding-bottom: 3px; }
+	.vs-report .vs-sub { color: #555; margin-bottom: 10px; }
+	.vs-report table { width: 100%; border-collapse: collapse; }
+	.vs-report th, .vs-report td { padding: 3px 4px; border-bottom: 1px solid #ddd; vertical-align: top; }
+	.vs-report th { text-align: left; font-weight: 600; background: #f3f3f3; }
+	.vs-report .num { text-align: right; white-space: nowrap; }
+	.vs-report .meta td { border: none; padding: 1px 4px; }
+	.vs-report .meta td:first-child { color: #555; width: 30%; }
+	.vs-report tr.total td { font-weight: 700; border-top: 1px solid #333; border-bottom: none; }
+	.vs-report .neg { color: #b42318; }
+	.vs-report .pos { color: #067647; }
+	.vs-report .vs-banner { border: 1px dashed #999; padding: 6px 8px; margin: 8px 0; }
+</style>
+
+<div class="vs-report">
+{%- if not r %}
+	<h2>Shift report unavailable</h2>
+	{%- if doc.doctype == "Van Shift Opening" %}
+	<p>This shift is no longer open, so it has no X report. Print the Y report from its Van Shift Closing instead.</p>
+	{%- else %}
+	<p>A Y report is only available once the shift closing is submitted.</p>
+	{%- endif %}
+{%- else %}
+	{%- set cur = r.shift.currency -%}
+	{%- set t = r.totals -%}
+	{#- Plain numbers, currency code shown once in the header: symbols such as QAR's are
+	    right-to-left and scramble the digits beside them in a numeric column. -#}
+	{%- macro money(v) -%}{{ frappe.utils.fmt_money(v or 0, precision=2) }}{%- endmacro -%}
+	{%- macro qty(v) -%}{{ frappe.format(v or 0, {"fieldtype": "Float"}) }}{%- endmacro -%}
+	{%- macro signed(v) -%}<span class="{{ 'pos' if v > 0 else ('neg' if v < 0 else '') }}">{{ '+' if v > 0 else '' }}{{ money(v) }}</span>{%- endmacro -%}
+
+	<h2>{{ r.report_type }} Report &mdash; {{ "Shift Snapshot" if r.report_type == "X" else "Shift Close" }}</h2>
+	<div class="vs-sub">
+		{%- if r.report_type == "X" %}Interim report. The shift is still open and these figures will change.
+		{%- else %}Final report for a closed shift.{% endif %}
+	</div>
+
+	<table class="meta">
+		<tr><td>Driver</td><td>{{ r.shift.driver_name or r.shift.driver }}</td></tr>
+		{%- if r.shift.van_profile %}<tr><td>Van</td><td>{{ r.shift.van_profile }}</td></tr>{% endif %}
+		{%- if cur %}<tr><td>Currency</td><td>{{ cur }}</td></tr>{% endif %}
+		<tr><td>Shift date</td><td>{{ frappe.format_date(r.shift.shift_date) }}</td></tr>
+		<tr><td>Opened</td><td>{{ frappe.format(r.shift.period_start, {"fieldtype": "Datetime"}) if r.shift.period_start else "" }}</td></tr>
+		{%- if r.shift.period_end %}<tr><td>Closed</td><td>{{ frappe.format(r.shift.period_end, {"fieldtype": "Datetime"}) }}</td></tr>{% endif %}
+		<tr><td>Opening shift</td><td>{{ r.shift.opening_shift }}</td></tr>
+		{%- if r.shift.closing_shift %}<tr><td>Closing shift</td><td>{{ r.shift.closing_shift }}</td></tr>{% endif %}
+		<tr><td>Printed</td><td>{{ frappe.format(r.generated_at, {"fieldtype": "Datetime"}) }}</td></tr>
+	</table>
+
+	<h3>Sales</h3>
+	<table>
+		<tr><th>Summary</th><th class="num">Count</th><th class="num">Amount</th></tr>
+		<tr><td>Sales orders</td><td class="num">{{ t.sales_orders_count }}</td><td class="num">{{ money(t.total_sales) }}</td></tr>
+		<tr><td>Sales invoices</td><td class="num">{{ t.invoices_count }}</td><td class="num">{{ money(t.invoiced_total) }}</td></tr>
+		<tr><td>Returns (credit notes)</td><td class="num">{{ t.returns_count }}</td><td class="num">{{ "-" if t.returns_total else "" }}{{ money(t.returns_total) }}</td></tr>
+		<tr class="total"><td>Net invoiced</td><td></td><td class="num">{{ money(t.net_invoiced) }}</td></tr>
+	</table>
+
+	<h3>Collections by mode</h3>
+	{%- if r.collections %}
+	<table>
+		<tr><th>Mode of payment</th><th class="num">Payments</th><th class="num">Amount</th></tr>
+		{%- for c in r.collections %}
+		<tr><td>{{ c.mode_of_payment }}</td><td class="num">{{ c.count }}</td><td class="num">{{ money(c.amount) }}</td></tr>
+		{%- endfor %}
+		<tr class="total"><td>Total</td><td class="num">{{ t.payments_count }}</td><td class="num">{{ money(t.total_collections) }}</td></tr>
+	</table>
+	{%- else %}<p>No collections.</p>{% endif %}
+
+	<h3>Expenses</h3>
+	{%- if r.expenses %}
+	<table>
+		<tr><th>Type</th><th>Notes</th><th class="num">Amount</th></tr>
+		{%- for e in r.expenses %}
+		<tr><td>{{ e.expense_type | e }}</td><td>{{ (e.notes or "") | e }}</td><td class="num">{{ money(e.amount) }}</td></tr>
+		{%- endfor %}
+		<tr class="total"><td colspan="2">Total</td><td class="num">{{ money(t.total_expenses) }}</td></tr>
+	</table>
+	{%- else %}<p>No expenses.</p>{% endif %}
+
+	<h3>Cash reconciliation</h3>
+	<table>
+		<tr>
+			<th>Mode of payment</th><th class="num">Opening</th><th class="num">Expected</th>
+			{%- if r.report_type == "Y" %}<th class="num">Counted</th><th class="num">Difference</th>{% endif %}
+		</tr>
+		{%- for p in r.payment_reconciliation %}
+		<tr>
+			<td>{{ p.mode_of_payment }}</td>
+			<td class="num">{{ money(p.opening_amount) }}</td>
+			<td class="num">{{ money(p.expected_amount) }}</td>
+			{%- if r.report_type == "Y" %}
+			<td class="num">{{ money(p.closing_amount) }}</td>
+			<td class="num">{{ signed(p.difference) }}</td>
+			{%- endif %}
+		</tr>
+		{%- endfor %}
+		<tr class="total">
+			<td>Total</td>
+			<td class="num">{{ money(t.total_opening_float) }}</td>
+			<td class="num">{{ money(r.payment_reconciliation | sum(attribute="expected_amount")) }}</td>
+			{%- if r.report_type == "Y" %}
+			<td class="num">{{ money(r.payment_reconciliation | sum(attribute="closing_amount")) }}</td>
+			<td class="num">{{ signed(t.net_difference) }}</td>
+			{%- endif %}
+		</tr>
+	</table>
+	<div class="vs-banner">Expected cash in hand: <b>{{ money(t.expected_cash) }}</b> (opening float + cash collected &minus; expenses)</div>
+
+	<h3>Items</h3>
+	{%- if r.items %}
+	<table>
+		<tr>
+			<th>Item</th><th>UOM</th><th class="num">Sold</th><th class="num">Returned</th><th class="num">Net qty</th>
+			<th class="num">Sold amt</th><th class="num">Returned amt</th>
+		</tr>
+		{%- for i in r["items"] %}
+		<tr>
+			<td>{{ i.item_name or i.item_code }}{% if i.item_name and i.item_name != i.item_code %}<br><small>{{ i.item_code }}</small>{% endif %}</td>
+			<td>{{ i.uom }}</td>
+			<td class="num">{{ qty(i.sold_qty) }}</td>
+			<td class="num">{{ qty(i.returned_qty) }}</td>
+			<td class="num">{{ qty(i.net_qty) }}</td>
+			<td class="num">{{ money(i.sold_amount) }}</td>
+			<td class="num">{{ money(i.returned_amount) }}</td>
+		</tr>
+		{%- endfor %}
+	</table>
+	<p><small>Quantities in stock UOM. Amounts are net of order discounts, before tax.</small></p>
+	{%- else %}<p>No items sold or returned.</p>{% endif %}
+
+	{%- if r.shift.notes %}
+	<h3>Notes</h3>
+	<p>{{ r.shift.notes | e }}</p>
+	{%- endif %}
+
+	{%- if r.report_type == "Y" %}
+	<table class="meta" style="margin-top: 36px;">
+		<tr>
+			<td style="width: 50%;">Driver signature: ____________________</td>
+			<td style="width: 50%;">Received by: ____________________</td>
+		</tr>
+	</table>
+	{%- endif %}
+{%- endif %}
+</div>

@@ -334,3 +334,200 @@ export interface StockTransferLine {
   has_batch_no: boolean;
   has_serial_no: boolean;
 }
+
+export interface ShiftReportReconciliationRow {
+  mode_of_payment: string;
+  opening_amount: number;
+  expected_amount: number;
+  /** Counted / difference only exist on a Y report — an open shift hasn't been counted. */
+  closing_amount: number | null;
+  difference: number | null;
+}
+
+export interface ShiftReportItem {
+  item_code: string;
+  item_name: string;
+  uom: string;
+  sold_qty: number;
+  sold_amount: number;
+  returned_qty: number;
+  returned_amount: number;
+  net_qty: number;
+}
+
+/** X report (open shift snapshot) or Y report (closed shift) — see shift_report.py. */
+export interface ShiftReport {
+  report_type: 'X' | 'Y';
+  generated_at: string;
+  shift: {
+    opening_shift: string;
+    closing_shift: string | null;
+    driver: string;
+    driver_name: string;
+    van_profile: string | null;
+    company: string;
+    currency: string | null;
+    shift_date: string;
+    period_start: string | null;
+    period_end: string | null;
+    status: string;
+    notes: string | null;
+  };
+  totals: {
+    total_sales: number;
+    total_collections: number;
+    total_expenses: number;
+    total_opening_float: number;
+    expected_cash: number;
+    net_difference?: number;
+    sales_orders_count: number;
+    invoices_count: number;
+    invoiced_total: number;
+    returns_count: number;
+    returns_total: number;
+    net_invoiced: number;
+    payments_count: number;
+    expenses_count: number;
+  };
+  payment_reconciliation: ShiftReportReconciliationRow[];
+  collections: Array<{ mode_of_payment: string; count: number; amount: number }>;
+  expenses: Array<{ name: string; expense_type: string; notes: string | null; amount: number }>;
+  items: ShiftReportItem[];
+}
+
+export interface ShiftClosingListRow {
+  name: string;
+  opening_shift: string;
+  driver: string;
+  driver_name: string;
+  shift_date: string;
+  period_start: string | null;
+  period_end: string | null;
+  total_sales: number;
+  total_collections: number;
+  net_difference: number;
+}
+
+// ─── Manager reports (manager_report.py) ─────────────────────────────────────
+
+export interface FleetTotals {
+  orders_count: number;
+  sales: number;
+  invoices_count: number;
+  invoiced: number;
+  returns_count: number;
+  returns: number;
+  payments_count: number;
+  collections: number;
+  expenses_count: number;
+  expenses: number;
+  shifts_count: number;
+  variance: number;
+  variance_shifts: number;
+  net_sales: number;
+  net_cash: number;
+  avg_order: number;
+  return_rate: number;
+}
+
+export interface FleetDriverInfo {
+  driver: string;
+  driver_name: string;
+  van_profile: string;
+  van_name: string;
+  delivery_route?: string | null;
+}
+
+export type FleetDriverRow = FleetDriverInfo & FleetTotals;
+
+export interface ManagerDashboardVan extends FleetDriverRow {
+  shift_status: 'open' | 'closed' | 'stale' | 'none';
+  opening_shift: string | null;
+  closing_shift: string | null;
+  shift_since: string | null;
+  expected_cash: number | null;
+  net_difference: number | null;
+}
+
+export interface ManagerAlert {
+  level: 'warning' | 'danger' | 'info';
+  kind: 'stale_shift' | 'variance' | 'no_shift';
+  driver: string;
+  reference: string | null;
+  title: string;
+  body: string;
+  amount?: number;
+}
+
+export interface ManagerDashboard {
+  date: string;
+  totals: FleetTotals & { open_shifts?: number; closed_shifts?: number; expected_cash_open?: number };
+  vans: ManagerDashboardVan[];
+  alerts: ManagerAlert[];
+}
+
+export interface PeriodComparisonRow {
+  metric: keyof FleetTotals;
+  label: string;
+  current: number;
+  previous: number;
+  delta: number;
+  delta_pct: number | null;
+}
+
+export interface PeriodDailyRow {
+  date: string;
+  sales: number;
+  collections: number;
+  expenses: number;
+  returns: number;
+}
+
+export interface PeriodItemRow {
+  item_code: string;
+  item_name: string;
+  item_group: string | null;
+  uom: string;
+  sold_qty: number;
+  sold_amount: number;
+  returned_qty: number;
+  returned_amount: number;
+  net_qty: number;
+  net_amount: number;
+}
+
+export interface PeriodShiftRow {
+  name: string;
+  opening_shift: string;
+  driver: string;
+  driver_name: string;
+  van_name?: string | null;
+  shift_date: string;
+  period_start: string | null;
+  period_end: string | null;
+  total_sales: number;
+  total_collections: number;
+  total_expenses: number;
+  expected_cash: number;
+  net_difference: number;
+}
+
+export interface PeriodReport {
+  period: { from_date: string; to_date: string; days: number; previous_from: string; previous_to: string };
+  totals: FleetTotals;
+  previous: FleetTotals;
+  comparison: PeriodComparisonRow[];
+  daily: PeriodDailyRow[];
+  by_driver: FleetDriverRow[];
+  collections_by_mode: Array<{ mode_of_payment: string; count: number; amount: number }>;
+  expenses_by_type: Array<{ expense_type: string; count: number; amount: number }>;
+  items: PeriodItemRow[];
+  item_groups: Array<{ item_group: string; sold_amount: number; returned_amount: number; net_amount: number; items: number }>;
+  customers: Array<{ customer: string; customer_name: string; orders_count: number; sales: number }>;
+  shifts: PeriodShiftRow[];
+}
+
+export interface FleetOptions {
+  drivers: FleetDriverInfo[];
+  vans: Array<{ van_profile: string; van_name: string }>;
+}
