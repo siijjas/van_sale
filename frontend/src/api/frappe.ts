@@ -969,9 +969,9 @@ export async function submitRouteExpense(expenseType: string, amount: number, no
   return data.message;
 }
 
-export async function getXReport(openingShift?: string): Promise<import('../types').ShiftReport> {
+export async function getShiftSummary(openingShift?: string): Promise<import('../types').ShiftReport> {
   const qs = openingShift ? `?opening_shift=${encodeURIComponent(openingShift)}` : '';
-  const res = await fetch(`/api/method/van_sale.van_sale.shift_report.get_x_report${qs}`, {
+  const res = await fetch(`/api/method/van_sale.van_sale.shift_report.get_shift_summary${qs}`, {
     method: 'GET',
     credentials: 'include',
     headers: defaultHeaders(),
@@ -980,9 +980,9 @@ export async function getXReport(openingShift?: string): Promise<import('../type
   return data.message;
 }
 
-export async function getYReport(closingShift: string): Promise<import('../types').ShiftReport> {
+export async function getClosingReport(closingShift: string): Promise<import('../types').ShiftReport> {
   const res = await fetch(
-    `/api/method/van_sale.van_sale.shift_report.get_y_report?closing_shift=${encodeURIComponent(closingShift)}`,
+    `/api/method/van_sale.van_sale.shift_report.get_closing_report?closing_shift=${encodeURIComponent(closingShift)}`,
     { method: 'GET', credentials: 'include', headers: defaultHeaders() },
   );
   const data = await handleResponse(res);

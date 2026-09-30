@@ -1,4 +1,4 @@
-{#- Shared body of the "Van Shift X Report" / "Van Shift Y Report" print formats.
+{#- Shared body of the "Van Shift Summary" / "Van Shift Closing Report" print formats.
     Expects `doc` (a Van Shift Opening or Van Shift Closing). Report data comes from
     van_sale.van_sale.shift_report.get_shift_report_for_print (jinja hook). -#}
 {%- set r = get_shift_report_for_print(doc.doctype, doc.name) -%}
@@ -24,9 +24,9 @@
 {%- if not r %}
 	<h2>Shift report unavailable</h2>
 	{%- if doc.doctype == "Van Shift Opening" %}
-	<p>This shift is no longer open, so it has no X report. Print the Y report from its Van Shift Closing instead.</p>
+	<p>This shift is no longer open, so it has no summary. Print the closing report from its Van Shift Closing instead.</p>
 	{%- else %}
-	<p>A Y report is only available once the shift closing is submitted.</p>
+	<p>A closing report is only available once the shift closing is submitted.</p>
 	{%- endif %}
 {%- else %}
 	{%- set cur = r.shift.currency -%}
@@ -37,9 +37,9 @@
 	{%- macro qty(v) -%}{{ frappe.format(v or 0, {"fieldtype": "Float"}) }}{%- endmacro -%}
 	{%- macro signed(v) -%}<span class="{{ 'pos' if v > 0 else ('neg' if v < 0 else '') }}">{{ '+' if v > 0 else '' }}{{ money(v) }}</span>{%- endmacro -%}
 
-	<h2>{{ r.report_type }} Report &mdash; {{ "Shift Snapshot" if r.report_type == "X" else "Shift Close" }}</h2>
+	<h2>{{ "Shift Summary" if r.report_type == "summary" else "Closing Report" }}</h2>
 	<div class="vs-sub">
-		{%- if r.report_type == "X" %}Interim report. The shift is still open and these figures will change.
+		{%- if r.report_type == "summary" %}Interim report. The shift is still open and these figures will change.
 		{%- else %}Final report for a closed shift.{% endif %}
 	</div>
 
@@ -90,14 +90,14 @@
 	<table>
 		<tr>
 			<th>Mode of payment</th><th class="num">Opening</th><th class="num">Expected</th>
-			{%- if r.report_type == "Y" %}<th class="num">Counted</th><th class="num">Difference</th>{% endif %}
+			{%- if r.report_type == "closing" %}<th class="num">Counted</th><th class="num">Difference</th>{% endif %}
 		</tr>
 		{%- for p in r.payment_reconciliation %}
 		<tr>
 			<td>{{ p.mode_of_payment }}</td>
 			<td class="num">{{ money(p.opening_amount) }}</td>
 			<td class="num">{{ money(p.expected_amount) }}</td>
-			{%- if r.report_type == "Y" %}
+			{%- if r.report_type == "closing" %}
 			<td class="num">{{ money(p.closing_amount) }}</td>
 			<td class="num">{{ signed(p.difference) }}</td>
 			{%- endif %}
@@ -107,7 +107,7 @@
 			<td>Total</td>
 			<td class="num">{{ money(t.total_opening_float) }}</td>
 			<td class="num">{{ money(r.payment_reconciliation | sum(attribute="expected_amount")) }}</td>
-			{%- if r.report_type == "Y" %}
+			{%- if r.report_type == "closing" %}
 			<td class="num">{{ money(r.payment_reconciliation | sum(attribute="closing_amount")) }}</td>
 			<td class="num">{{ signed(t.net_difference) }}</td>
 			{%- endif %}
@@ -142,7 +142,7 @@
 	<p>{{ r.shift.notes | e }}</p>
 	{%- endif %}
 
-	{%- if r.report_type == "Y" %}
+	{%- if r.report_type == "closing" %}
 	<table class="meta" style="margin-top: 36px;">
 		<tr>
 			<td style="width: 50%;">Driver signature: ____________________</td>

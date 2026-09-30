@@ -1,21 +1,21 @@
 <template>
-  <WorkspacePage back :eyebrow="isX ? 'X report' : 'Y report'" :title="isX ? 'Shift snapshot' : 'Shift close'" :description="description" width="default">
+  <WorkspacePage back :eyebrow="isSummary ? 'Open shift' : 'Closed shift'" :title="isSummary ? 'Shift summary' : 'Closing report'" :description="description" width="default">
     <template #actions>
-      <AppButton v-if="isX" variant="secondary" size="sm" icon="refresh" :loading="loading" @click="load">Refresh</AppButton>
+      <AppButton v-if="isSummary" variant="secondary" size="sm" icon="refresh" :loading="loading" @click="load">Refresh</AppButton>
       <AppButton v-if="report" variant="secondary" size="sm" icon="printer" @click="printPdf">Print</AppButton>
     </template>
 
     <SkeletonList v-if="loading && !report" :rows="4" height="6rem" />
 
     <div v-else-if="report" class="space-y-5 pb-8">
-      <AppAlert v-if="isX" tone="info" message="Interim report. Your shift is still open, so these figures will change until you close it." />
+      <AppAlert v-if="isSummary" tone="info" message="Interim report. Your shift is still open, so these figures will change until you close it." />
 
       <AppCard padding="sm">
         <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div><dt class="text-muted">Driver</dt><dd class="font-semibold text-foreground">{{ report.shift.driver_name || report.shift.driver }}</dd></div>
           <div v-if="report.shift.van_profile"><dt class="text-muted">Van</dt><dd class="font-semibold text-foreground">{{ report.shift.van_profile }}</dd></div>
           <div><dt class="text-muted">Opened</dt><dd class="tnum font-semibold text-foreground">{{ formatDateTime(report.shift.period_start) }}</dd></div>
-          <div><dt class="text-muted">{{ isX ? 'As of' : 'Closed' }}</dt><dd class="tnum font-semibold text-foreground">{{ formatDateTime(isX ? report.generated_at : report.shift.period_end) }}</dd></div>
+          <div><dt class="text-muted">{{ isSummary ? 'As of' : 'Closed' }}</dt><dd class="tnum font-semibold text-foreground">{{ formatDateTime(isSummary ? report.generated_at : report.shift.period_end) }}</dd></div>
         </dl>
       </AppCard>
 
@@ -27,7 +27,7 @@
       </div>
 
       <div
-        v-if="!isX && t.net_difference !== undefined"
+        v-if="!isSummary && t.net_difference !== undefined"
         class="flex items-center justify-between rounded-2xl border px-4 py-3"
         :class="varianceClass(t.net_difference)"
       >
@@ -69,7 +69,7 @@
             <span class="text-sm font-bold text-foreground">{{ row.mode_of_payment }}</span>
             <span v-if="row.difference" class="tnum text-xs font-bold" :class="row.difference > 0 ? 'text-success' : 'text-danger'">{{ signed(row.difference) }}</span>
           </div>
-          <div class="grid gap-2 text-center text-xs" :class="isX ? 'grid-cols-2' : 'grid-cols-3'">
+          <div class="grid gap-2 text-center text-xs" :class="isSummary ? 'grid-cols-2' : 'grid-cols-3'">
             <div class="rounded-xl bg-muted/40 py-1.5">
               <p class="opacity-60">Opening</p>
               <p class="tnum font-semibold text-foreground">{{ fmt(row.opening_amount) }}</p>
@@ -78,7 +78,7 @@
               <p class="opacity-60">Expected</p>
               <p class="tnum font-semibold text-foreground">{{ fmt(row.expected_amount) }}</p>
             </div>
-            <div v-if="!isX" class="rounded-xl bg-muted/40 py-1.5">
+            <div v-if="!isSummary" class="rounded-xl bg-muted/40 py-1.5">
               <p class="opacity-60">Counted</p>
               <p class="tnum font-semibold text-foreground">{{ fmt(row.closing_amount ?? 0) }}</p>
             </div>
@@ -128,7 +128,7 @@
 
     <div v-else class="space-y-4">
       <AppAlert tone="danger" :message="error || 'Report unavailable.'" />
-      <AppButton v-if="isX" variant="secondary" icon="play-circle" @click="router.push({ name: 'shift-open' })">Open a shift</AppButton>
+      <AppButton v-if="isSummary" variant="secondary" icon="play-circle" @click="router.push({ name: 'shift-open' })">Open a shift</AppButton>
     </div>
   </WorkspacePage>
 </template>
@@ -147,14 +147,14 @@ const router = useRouter();
 const store = useSessionStore();
 const currency = computed(() => store.currencyDisplay);
 
-const isX = computed(() => route.name === 'shift-report-x');
+const isSummary = computed(() => route.name === 'shift-summary');
 const report = ref<ShiftReport | null>(null);
 const loading = ref(true);
 const error = ref('');
 
 const t = computed(() => report.value!.totals);
 const description = computed(() =>
-  isX.value
+  isSummary.value
     ? 'Everything on your open shift so far. Running it does not close the shift.'
     : report.value
       ? `Final figures for the shift on ${formatDate(report.value.shift.shift_date)}.`
@@ -191,9 +191,9 @@ const load = async () => {
   loading.value = true;
   error.value = '';
   try {
-    report.value = isX.value
-      ? await api.getXReport((route.query.opening as string) || undefined)
-      : await api.getYReport(route.params.name as string);
+    report.value = isSummary.value
+      ? await api.getShiftSummary((route.query.opening as string) || undefined)
+      : await api.getClosingReport(route.params.name as string);
   } catch (e: any) {
     report.value = null;
     error.value = e?.message || 'Could not load the report.';
@@ -204,8 +204,8 @@ const load = async () => {
 
 const printPdf = () => {
   if (!report.value) return;
-  if (isX.value) api.downloadPdf('Van Shift Opening', report.value.shift.opening_shift, 'Van Shift X Report');
-  else api.downloadPdf('Van Shift Closing', report.value.shift.closing_shift!, 'Van Shift Y Report');
+  if (isSummary.value) api.downloadPdf('Van Shift Opening', report.value.shift.opening_shift, 'Van Shift Summary');
+  else api.downloadPdf('Van Shift Closing', report.value.shift.closing_shift!, 'Van Shift Closing Report');
 };
 
 watch(() => route.fullPath, load, { immediate: true });

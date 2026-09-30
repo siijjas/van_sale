@@ -239,7 +239,7 @@
           :key="s.name"
           padding="sm"
           interactive
-          @click="router.push({ name: 'shift-report-y', params: { name: s.name } })"
+          @click="router.push({ name: 'closing-report', params: { name: s.name } })"
         >
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">

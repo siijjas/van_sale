@@ -33,8 +33,11 @@ const router = createRouter({
     { path: '/shift/close', name: 'shift-close', component: () => import('../views/ShiftCloseView.vue') },
     { path: '/reports', name: 'reports', component: () => import('../views/ReportsView.vue'), meta: { requiresManager: true } },
     { path: '/shift/reports', name: 'shift-reports', component: () => import('../views/ShiftReportsView.vue') },
-    { path: '/shift/report/x', name: 'shift-report-x', component: () => import('../views/ShiftReportView.vue') },
-    { path: '/shift/report/y/:name', name: 'shift-report-y', component: () => import('../views/ShiftReportView.vue') },
+    { path: '/shift/summary', name: 'shift-summary', component: () => import('../views/ShiftReportView.vue') },
+    { path: '/shift/closing-report/:name', name: 'closing-report', component: () => import('../views/ShiftReportView.vue') },
+    // Old X/Y report links.
+    { path: '/shift/report/x', redirect: (to) => ({ name: 'shift-summary', query: to.query }) },
+    { path: '/shift/report/y/:name', redirect: (to) => ({ name: 'closing-report', params: { name: to.params.name } }) },
     { path: '/eod', redirect: { name: 'shift-close' } },
     { path: '/van-profiles', name: 'van-profiles', component: () => import('../views/VanProfileView.vue'), meta: { requiresManager: true } },
   ],

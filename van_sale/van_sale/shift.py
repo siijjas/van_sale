@@ -155,7 +155,7 @@ def _compute_closing(opening: dict) -> dict:
 	"""
 	# The opening's own driver and date rather than the session user and today: the
 	# same thing in close_shift()/get_shift_closing_summary(), which only ever reach an
-	# opening the caller owns dated today, but it lets a manager's X report
+	# opening the caller owns dated today, but it lets a manager's shift summary
 	# (shift_report.py) compute another driver's open shift correctly.
 	user = opening.get("driver") or frappe.session.user
 	today = opening.get("shift_date") or nowdate()
@@ -188,7 +188,7 @@ def _compute_closing(opening: dict) -> dict:
 	total_expenses = flt(sum(flt(e.amount) for e in expenses))
 
 	# Invoices and credit notes don't feed any closing total (sales are counted on the
-	# Sales Order), but recording them lets the Y report break down invoiced vs returned
+	# Sales Order), but recording them lets the closing report break down invoiced vs returned
 	# from the same frozen list as everything else.
 	sales_invoices = frappe.get_all(
 		"Sales Invoice",

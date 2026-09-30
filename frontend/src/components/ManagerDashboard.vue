@@ -170,8 +170,8 @@ const statusLabel = (v: ManagerDashboardVan) => {
 };
 
 const reportRoute = (v: ManagerDashboardVan) => {
-  if (v.shift_status === 'open' && v.opening_shift) return { name: 'shift-report-x', query: { opening: v.opening_shift } };
-  if (v.shift_status === 'closed' && v.closing_shift) return { name: 'shift-report-y', params: { name: v.closing_shift } };
+  if (v.shift_status === 'open' && v.opening_shift) return { name: 'shift-summary', query: { opening: v.opening_shift } };
+  if (v.shift_status === 'closed' && v.closing_shift) return { name: 'closing-report', params: { name: v.closing_shift } };
   return null;
 };
 const closeShift = (opening: string) => router.push({ name: 'shift-close', query: { opening } });

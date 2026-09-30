@@ -1,16 +1,16 @@
 <template>
-  <WorkspacePage back eyebrow="Shift reports" title="X & Y reports" description="X is a live snapshot of your open shift. Y is the final report of a closed shift." width="default">
+  <WorkspacePage back eyebrow="Shifts" title="Shift reports" description="The shift summary shows your open shift so far. Each closed shift has a closing report." width="default">
     <SkeletonList v-if="loading" :rows="4" height="5rem" />
 
     <div v-else class="space-y-5">
-      <AppCard v-if="activeShift" interactive padding="lg" @click="router.push({ name: 'shift-report-x' })">
+      <AppCard v-if="activeShift" interactive padding="lg" @click="router.push({ name: 'shift-summary' })">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-success/12 text-success">
               <AppIcon name="activity" :size="22" />
             </span>
             <div>
-              <p class="font-bold text-foreground">X report</p>
+              <p class="font-bold text-foreground">Shift summary</p>
               <p class="text-xs text-muted">Current shift{{ activeShift.period_start ? `, open since ${formatTime(activeShift.period_start)}` : '' }}</p>
             </div>
           </div>
@@ -19,11 +19,11 @@
       </AppCard>
 
       <section>
-        <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Closed shifts · Y reports</p>
+        <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Closed shifts · Closing reports</p>
         <AppAlert v-if="error" tone="danger" :message="error" />
-        <EmptyState v-else-if="!closings.length" icon="receipt" title="No closed shifts yet" description="Y reports appear here once you close a shift." />
+        <EmptyState v-else-if="!closings.length" icon="receipt" title="No closed shifts yet" description="Closing reports appear here once you close a shift." />
         <div v-else class="space-y-2.5">
-          <AppCard v-for="c in closings" :key="c.name" padding="sm" interactive @click="router.push({ name: 'shift-report-y', params: { name: c.name } })">
+          <AppCard v-for="c in closings" :key="c.name" padding="sm" interactive @click="router.push({ name: 'closing-report', params: { name: c.name } })">
             <div class="flex items-center justify-between gap-3">
               <div class="min-w-0">
                 <p class="font-semibold text-foreground">{{ formatDate(c.shift_date) }}</p>

@@ -1,16 +1,16 @@
 """
-X and Y shift reports.
+Shift summary and closing report.
 
-- X report: a read-only snapshot of a shift that is still open. It runs the same
+- Shift summary: a read-only snapshot of a shift that is still open. It runs the same
   aggregation close_shift() would (shift._compute_closing) without writing
   anything, so a driver can check their numbers as often as they like mid-route.
-- Y report: the final report of a closed shift, read from its Van Shift Closing.
+- Closing report: the final report of a closed shift, read from its Van Shift Closing.
   Totals and the per-mode reconciliation come straight off the closing doc, and the
   breakdowns are built from the closing's frozen `transactions` list, so the report
   reads the same whenever it is reprinted.
 
 Both share one shape (see _build_report), rendered by ShiftReportView.vue in the app
-and by the "Van Shift X Report" / "Van Shift Y Report" print formats, which call
+and by the "Van Shift Summary" / "Van Shift Closing Report" print formats, which call
 get_shift_report_for_print() through the jinja hook.
 """
 
@@ -109,10 +109,11 @@ def _item_rows(sales_orders: list[str], returns: list[str]) -> list[dict]:
 
 
 def _build_report(report_type: str, header: dict, totals: dict, reconciliation: list[dict], transactions: list[dict]) -> dict:
-	"""Assemble the shared X/Y report shape from a shift's transaction references.
+	"""Assemble the report shape the summary and closing report share, from a shift's
+	transaction references.
 
 	`transactions` is the reference list shift._compute_closing() produces (and a
-	closing stores). Amounts are taken from it rather than re-read, so a Y report
+	closing stores). Amounts are taken from it rather than re-read, so a closing report
 	shows what the shift actually closed on.
 	"""
 	order_names = _names(transactions, "Sales Order")
@@ -206,10 +207,10 @@ def _header(doc, opening_shift: str, closing_shift: str | None) -> dict:
 
 # ─── Builders ─────────────────────────────────────────────────────────────────
 
-def build_x_report(opening_doc) -> dict:
+def build_shift_summary(opening_doc) -> dict:
 	"""Live snapshot of an open shift. Writes nothing."""
 	if opening_doc.docstatus != 1 or opening_doc.status != "Open":
-		frappe.throw("The X report is only available while a shift is open. Closed shifts have a Y report.")
+		frappe.throw("The shift summary is only available while a shift is open. Closed shifts have a closing report.")
 
 	computed = _compute_closing(_serialize_opening(opening_doc))
 	totals = {
@@ -220,14 +221,14 @@ def build_x_report(opening_doc) -> dict:
 		{**row, "closing_amount": None, "difference": None} for row in computed["rows"]
 	]
 	return _build_report(
-		"X", _header(opening_doc, opening_doc.name, None), totals, reconciliation, computed["transactions"]
+		"summary", _header(opening_doc, opening_doc.name, None), totals, reconciliation, computed["transactions"]
 	)
 
 
-def build_y_report(closing_doc) -> dict:
+def build_closing_report(closing_doc) -> dict:
 	"""Final report of a closed shift, from its Van Shift Closing."""
 	if closing_doc.docstatus != 1:
-		frappe.throw("The Y report is only available for a submitted shift closing.")
+		frappe.throw("The closing report is only available for a submitted shift closing.")
 
 	transactions = [
 		{"reference_doctype": t.reference_doctype, "reference_name": t.reference_name, "amount": flt(t.amount)}
@@ -255,36 +256,36 @@ def build_y_report(closing_doc) -> dict:
 		for r in closing_doc.payment_reconciliation
 	]
 	return _build_report(
-		"Y", _header(closing_doc, closing_doc.opening_shift, closing_doc.name), totals, reconciliation, transactions
+		"closing", _header(closing_doc, closing_doc.opening_shift, closing_doc.name), totals, reconciliation, transactions
 	)
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def get_x_report(opening_shift: str | None = None):
-	"""X report for the given open shift, or the caller's own open shift today."""
+def get_shift_summary(opening_shift: str | None = None):
+	"""Summary of the given open shift, or of the caller's own open shift."""
 	_require_van_user()
 	if not opening_shift:
 		opening_shift = _find_open_shift(frappe.session.user, today_only=False)
 		if not opening_shift:
-			frappe.throw("No open shift found. Open a shift to run an X report.")
+			frappe.throw("No open shift found. Open a shift to see its summary.")
 	doc = frappe.get_doc("Van Shift Opening", opening_shift)
 	_check_access(doc)
-	return build_x_report(doc)
+	return build_shift_summary(doc)
 
 
 @frappe.whitelist()
-def get_y_report(closing_shift: str):
+def get_closing_report(closing_shift: str):
 	_require_van_user()
 	doc = frappe.get_doc("Van Shift Closing", closing_shift)
 	_check_access(doc)
-	return build_y_report(doc)
+	return build_closing_report(doc)
 
 
 @frappe.whitelist()
 def get_shift_closings(limit: int = 30):
-	"""Recent closed shifts to pick a Y report from: the caller's own, or everyone's for a manager."""
+	"""Recent closed shifts to pick a closing report from: the caller's own, or everyone's for a manager."""
 	_require_van_user()
 	filters = {"docstatus": 1}
 	if frappe.session.user != "Administrator" and not _is_manager():
@@ -305,9 +306,9 @@ def get_shift_closings(limit: int = 30):
 
 
 def get_shift_report_for_print(doctype: str, name: str) -> dict | None:
-	"""Jinja method (see hooks.py) backing the X/Y print formats.
+	"""Jinja method (see hooks.py) backing the shift summary / closing report print formats.
 
-	Returns None when the document can't produce that report (an X report of a shift
+	Returns None when the document can't produce that report (a summary of a shift
 	that has since closed, or a draft/cancelled closing), so the template can say so
 	rather than failing the whole print.
 	"""
@@ -317,9 +318,9 @@ def get_shift_report_for_print(doctype: str, name: str) -> dict | None:
 	if doctype == "Van Shift Opening":
 		if doc.docstatus != 1 or doc.status != "Open":
 			return None
-		return build_x_report(doc)
+		return build_shift_summary(doc)
 	if doctype == "Van Shift Closing":
 		if doc.docstatus != 1:
 			return None
-		return build_y_report(doc)
+		return build_closing_report(doc)
 	frappe.throw(f"No shift report for {doctype}.")

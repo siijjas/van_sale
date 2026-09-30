@@ -348,7 +348,7 @@ export interface ShiftReportReconciliationRow {
   mode_of_payment: string;
   opening_amount: number;
   expected_amount: number;
-  /** Counted / difference only exist on a Y report — an open shift hasn't been counted. */
+  /** Counted / difference only exist on a closing report — an open shift hasn't been counted. */
   closing_amount: number | null;
   difference: number | null;
 }
@@ -364,9 +364,9 @@ export interface ShiftReportItem {
   net_qty: number;
 }
 
-/** X report (open shift snapshot) or Y report (closed shift) — see shift_report.py. */
+/** Shift summary (open shift snapshot) or closing report (closed shift) — see shift_report.py. */
 export interface ShiftReport {
-  report_type: 'X' | 'Y';
+  report_type: 'summary' | 'closing';
   generated_at: string;
   shift: {
     opening_shift: string;

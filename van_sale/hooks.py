@@ -145,7 +145,7 @@ has_permission = {
 # Van Sales Driver role on the standard ERPNext doctypes the PWA uses via REST.
 after_migrate = ["van_sale.van_sale.setup.setup_van_sales_driver_permissions"]
 
-# Lets the Van Shift X/Y Report print formats build their report data.
+# Lets the "Van Shift Summary" / "Van Shift Closing Report" print formats build their data.
 jinja = {
 	"methods": ["van_sale.van_sale.shift_report.get_shift_report_for_print"],
 }
