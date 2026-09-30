@@ -19,6 +19,7 @@ import type {
   ShiftClosingSummary,
   PaymentReconciliationRow,
   ItemSalesHistoryRow,
+  InvoiceStockCheck,
 } from '../types';
 
 let csrfTokenCache: string | undefined;
@@ -562,9 +563,32 @@ export async function getItemSalesHistory(itemCode: string, customer?: string, l
   return (data.message || []) as ItemSalesHistoryRow[];
 }
 
+export async function getInvoiceStockShortages(salesOrder: string): Promise<InvoiceStockCheck> {
+  const params = new URLSearchParams({ sales_order: salesOrder });
+  const res = await fetch(`/api/method/van_sale.van_sale.sales.get_invoice_stock_shortages?${params.toString()}`, {
+    method: 'GET',
+    headers: { ...defaultHeaders() },
+    credentials: 'include',
+  });
+  const data = await handleResponse(res);
+  return data.message as InvoiceStockCheck;
+}
+
+export async function deliverPendingItems(salesOrder: string): Promise<string[]> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.sales.deliver_pending_items', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    credentials: 'include',
+    body: JSON.stringify({ sales_order: salesOrder }),
+  });
+  const data = await handleResponse(res);
+  return (data.message || []) as string[];
+}
+
 export async function createSalesInvoice(
   salesOrder: string,
-  options?: { markAsPaid?: boolean; modeOfPayment?: string },
+  options?: { markAsPaid?: boolean; modeOfPayment?: string; allowWithoutStock?: boolean },
 ): Promise<string> {
   await refreshCsrfToken();
   const res = await fetch('/api/method/van_sale.van_sale.sales.create_sales_invoice', {
@@ -576,6 +600,7 @@ export async function createSalesInvoice(
       ...(options?.markAsPaid
         ? { mark_as_paid: 1, mode_of_payment: options.modeOfPayment }
         : {}),
+      ...(options?.allowWithoutStock ? { allow_without_stock: 1 } : {}),
     }),
   });
   const data = await handleResponse(res);

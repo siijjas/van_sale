@@ -54,7 +54,7 @@
               variant="secondary"
               size="sm"
               icon="plus"
-              :disabled="hasQty(item) && item.actual_qty! <= 0"
+              :disabled="!allowWithoutStock && hasQty(item) && item.actual_qty! <= 0"
               @click="openSheet(item)"
             >
               Add
@@ -86,7 +86,7 @@
       :title="selectedItem?.item_name || ''"
       :subtitle="selectedItem?.item_code"
       :price="selectedItem ? `${currency} ${itemPrice(selectedItem)?.toFixed(2)}` : undefined"
-      :max-qty="selectedItem?.actual_qty !== undefined ? selectedItem.actual_qty : undefined"
+      :max-qty="!allowWithoutStock && selectedItem?.actual_qty !== undefined ? selectedItem.actual_qty : undefined"
       :initial-qty="selectedItem ? getQty(selectedItem.item_code) : 0"
       :step="0.5"
       :confirm-label="selectedItem && getQty(selectedItem.item_code) > 0 ? 'Update qty' : 'Add to order'"
@@ -144,6 +144,9 @@ const error = ref('');
 const currency = computed(() => store.currencyDisplay);
 const cartCount = computed(() => store.cartCount);
 const total = computed(() => store.cartTotal.toFixed(2));
+// Van Profile override: out-of-stock items can still be ordered; create_sales_invoice()
+// then bills them without moving stock and delivers only what the van holds.
+const allowWithoutStock = computed(() => !!store.driverConfig?.allow_sale_without_stock);
 
 const sheetOpen = ref(false);
 const selectedItem = ref<Item | null>(null);
@@ -186,7 +189,7 @@ watch(search, () => {
 let timer = window.setTimeout(() => {}, 0);
 
 function openSheet(item: Item) {
-  if (hasQty(item) && item.actual_qty! <= 0 && getQty(item.item_code) === 0) return;
+  if (!allowWithoutStock.value && hasQty(item) && item.actual_qty! <= 0 && getQty(item.item_code) === 0) return;
   selectedItem.value = item;
   sheetOpen.value = true;
 }

@@ -30,6 +30,7 @@ export interface DriverConfig {
   apply_discount_on?: string;
   allow_rate_change?: boolean;
   allow_discount_change?: boolean;
+  allow_sale_without_stock?: boolean;
   validate_stock_on_save?: boolean;
   ignore_pricing_rule?: boolean;
   disable_rounded_total?: boolean;
@@ -103,6 +104,7 @@ export interface VanProfile {
   low_stock_threshold: number;
   allow_rate_change: boolean;
   allow_discount_change: boolean;
+  allow_sale_without_stock: boolean;
   validate_stock_on_save: boolean;
   allow_offline_stock_dashboard: boolean;
   ignore_pricing_rule: boolean;
@@ -169,6 +171,20 @@ export interface ItemSalesHistoryRow {
   amount: number;
 }
 
+export interface InvoiceStockShortage {
+  item_code: string;
+  item_name: string;
+  stock_uom: string;
+  required_qty: number;
+  available_qty: number;
+  short_qty: number;
+}
+
+export interface InvoiceStockCheck {
+  allow_sale_without_stock: boolean;
+  short_items: InvoiceStockShortage[];
+}
+
 export interface CartLine {
   item: Item;
   qty: number;
@@ -204,6 +220,7 @@ export interface SalesOrder {
   naming_series?: string;
   order_type?: string;
   per_billed?: number;
+  per_delivered?: number;
   additional_discount_percentage?: number;
   discount_amount?: number;
   apply_discount_on?: string;

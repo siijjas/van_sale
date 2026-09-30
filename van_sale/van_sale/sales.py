@@ -1,4 +1,5 @@
 import json
+import math
 import frappe
 from frappe.utils import nowdate, flt
 from van_sale.van_sale.utils import (
@@ -591,8 +592,213 @@ def get_daily_log(doctype: str):
 	return []
 
 
+def _get_invoiceable_order(sales_order: str):
+	so = frappe.get_doc("Sales Order", sales_order)
+	if not _is_manager() and so.owner != frappe.session.user:
+		frappe.throw("You can only invoice your own sales orders.", frappe.PermissionError)
+	if so.docstatus != 1:
+		frappe.throw("Sales Order must be submitted before creating an invoice.")
+	if (so.per_billed or 0) >= 100:
+		frappe.throw("This sales order has already been fully invoiced.")
+	return so
+
+
+def _is_stock_item(item_code: str) -> bool:
+	return bool(frappe.get_cached_value("Item", item_code, "is_stock_item"))
+
+
+def _van_qty(item_code: str, warehouse: str) -> float:
+	return max(flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty")), 0)
+
+
+def _van_stock_shortages(so, warehouse: str | None) -> list[dict]:
+	"""Stock items on the order the van can't fully cover, compared in stock UOM.
+
+	Quantities are summed per item first, so an item split over several lines is
+	checked against the van once rather than each line seeing the whole stock.
+	"""
+	if not warehouse:
+		return []
+	required: dict[str, float] = {}
+	names: dict[str, str] = {}
+	for so_item in so.items:
+		qty = flt(so_item.qty) - flt(so_item.returned_qty or 0)
+		if qty <= 0 or not _is_stock_item(so_item.item_code):
+			continue
+		required[so_item.item_code] = required.get(so_item.item_code, 0) + qty * (flt(so_item.conversion_factor) or 1)
+		names[so_item.item_code] = so_item.item_name
+
+	shortages = []
+	for item_code, required_qty in required.items():
+		available_qty = _van_qty(item_code, warehouse)
+		if flt(required_qty - available_qty, 6) > 0:
+			shortages.append({
+				"item_code": item_code,
+				"item_name": names[item_code],
+				"stock_uom": frappe.get_cached_value("Item", item_code, "stock_uom"),
+				"required_qty": flt(required_qty, 6),
+				"available_qty": flt(available_qty, 6),
+				"short_qty": flt(required_qty - available_qty, 6),
+			})
+	return shortages
+
+
+def _deliver_available_stock(sinv, warehouse: str) -> str | None:
+	"""Deliver whatever the van can cover of a Sales Invoice raised without update_stock.
+
+	Each row carries against_sales_invoice/si_detail as well as against_sales_order/
+	so_detail, the same links ERPNext's Sales Invoice -> Delivery Note mapper sets: the
+	order's per_delivered moves, and the Delivery Note counts as billed rather than
+	sitting in "To Bill". Rows the van can only partly cover are cut down to what is on
+	hand; the rest stays undelivered on the invoice and order, and a manager raises a
+	second Delivery Note from the invoice (Create > Delivery Note) once the stock is in —
+	the mapper picks up exactly qty - delivered_qty. Non-stock rows ride along with the
+	first delivery.
+
+	Built by hand rather than through that mapper because get_mapped_doc() checks the
+	session user's create permission on Delivery Note, which the driver role doesn't
+	hold, and make_delivery_note() gives no way to pass ignore_permissions through.
+	"""
+	remaining: dict[str, float] = {}
+	rows = []
+	full_total = 0.0
+	for si_item in sinv.items:
+		qty = flt(si_item.qty) - flt(si_item.delivered_qty)
+		if qty <= 0:
+			continue
+		full_total += qty * flt(si_item.rate)
+		factor = flt(si_item.conversion_factor) or 1
+		if _is_stock_item(si_item.item_code):
+			if si_item.item_code not in remaining:
+				remaining[si_item.item_code] = _van_qty(si_item.item_code, warehouse)
+			qty = min(qty, remaining[si_item.item_code] / factor)
+			if frappe.get_cached_value("UOM", si_item.uom, "must_be_whole_number"):
+				qty = math.floor(qty)
+			qty = flt(qty, si_item.precision("qty"))
+			if qty <= 0:
+				continue
+			remaining[si_item.item_code] -= qty * factor
+		rows.append({
+			"item_code": si_item.item_code,
+			"item_name": si_item.item_name,
+			"description": si_item.description,
+			"qty": qty,
+			"uom": si_item.uom,
+			"stock_uom": si_item.stock_uom,
+			"conversion_factor": factor,
+			"stock_qty": qty * factor,
+			"price_list_rate": si_item.price_list_rate,
+			"discount_percentage": si_item.discount_percentage,
+			"discount_amount": si_item.discount_amount,
+			"rate": si_item.rate,
+			"item_tax_template": si_item.item_tax_template,
+			"cost_center": si_item.cost_center,
+			"warehouse": warehouse,
+			"against_sales_order": si_item.sales_order,
+			"so_detail": si_item.so_detail,
+			"against_sales_invoice": sinv.name,
+			"si_detail": si_item.name,
+		})
+
+	# Nothing in stock to hand over: leave everything, non-stock rows included, for the
+	# later Delivery Note rather than raising one for services alone.
+	if not any(_is_stock_item(row["item_code"]) for row in rows):
+		return None
+
+	dn = frappe.new_doc("Delivery Note")
+	for field in (
+		"customer", "company", "currency", "conversion_rate", "selling_price_list",
+		"price_list_currency", "plc_conversion_rate", "ignore_pricing_rule", "taxes_and_charges",
+		"apply_discount_on", "additional_discount_percentage", "discount_amount",
+	):
+		dn.set(field, sinv.get(field))
+	dn.posting_date = nowdate()
+	dn.set_warehouse = warehouse
+	for row in rows:
+		dn.append("items", row)
+	for tax in sinv.taxes:
+		dn.append("taxes", tax.as_dict(no_default_fields=True))
+
+	# A flat discount_amount copied from the invoice is more than this note's share on a
+	# partial delivery, and can push its grand total below zero. A percentage scales by
+	# itself.
+	if flt(dn.discount_amount) and not flt(dn.additional_discount_percentage) and full_total:
+		delivered_total = sum(flt(row["qty"]) * flt(row["rate"]) for row in rows)
+		dn.discount_amount = flt(dn.discount_amount) * delivered_total / full_total
+
+	dn.run_method("set_missing_values")
+	dn.run_method("calculate_taxes_and_totals")
+
+	# Same authorization model as the Sales Invoice itself: the caller was checked by
+	# create_sales_invoice(), and the driver role holds no Delivery Note permissions.
+	dn.flags.ignore_permissions = True
+	dn.insert()
+	dn.submit()
+	return dn.name
+
+
 @frappe.whitelist()
-def create_sales_invoice(sales_order: str, mark_as_paid: int = 0, mode_of_payment: str = None):
+def deliver_pending_items(sales_order: str):
+	"""Deliver, from the van, order items that were billed before they were in stock.
+
+	The follow-up to create_sales_invoice(allow_without_stock=1) once the stock has been
+	brought into the van. ERPNext's own Create > Delivery Note on the invoice maps every
+	row at qty - delivered_qty, including rows already delivered (qty 0, which it then
+	refuses to save), so this reuses _deliver_available_stock() instead: it skips
+	delivered rows and again delivers only what the van actually holds.
+	"""
+	_require_van_user()
+	so = frappe.get_doc("Sales Order", sales_order)
+	if not _is_manager() and so.owner != frappe.session.user:
+		frappe.throw("You can only deliver your own sales orders.", frappe.PermissionError)
+	if so.docstatus != 1:
+		frappe.throw("Sales Order must be submitted before it can be delivered.")
+
+	invoices = frappe.get_all(
+		"Sales Invoice Item",
+		filters={"sales_order": so.name, "docstatus": 1},
+		pluck="parent",
+		distinct=True,
+	)
+	config = _get_driver_config(required=False) or {}
+	delivered = []
+	for name in invoices:
+		sinv = frappe.get_doc("Sales Invoice", name)
+		if sinv.update_stock or sinv.is_return:
+			continue
+		warehouse = sinv.set_warehouse or config.get("van_warehouse")
+		if not warehouse:
+			frappe.throw(f"No van warehouse to deliver {sinv.name} from.")
+		dn = _deliver_available_stock(sinv, warehouse)
+		if dn:
+			delivered.append(dn)
+
+	if not delivered:
+		frappe.throw("None of the pending items are in the van yet.")
+	return delivered
+
+
+@frappe.whitelist()
+def get_invoice_stock_shortages(sales_order: str):
+	"""Which items on this order the van can't cover, checked before invoicing.
+
+	The app calls this first so it can warn the driver and ask for confirmation
+	before create_sales_invoice(allow_without_stock=1) bills the order without
+	moving stock.
+	"""
+	_require_van_user()
+	so = _get_invoiceable_order(sales_order)
+	config = _get_driver_config(required=False) or {}
+	return {
+		"allow_sale_without_stock": bool(config.get("allow_sale_without_stock")),
+		"short_items": _van_stock_shortages(so, config.get("van_warehouse")),
+	}
+
+
+@frappe.whitelist()
+def create_sales_invoice(
+	sales_order: str, mark_as_paid: int = 0, mode_of_payment: str = None, allow_without_stock: int = 0
+):
 	"""Create (and submit) a Sales Invoice from a submitted Sales Order.
 
 	By default the invoice is left outstanding (a credit sale, collected later
@@ -601,24 +807,35 @@ def create_sales_invoice(sales_order: str, mark_as_paid: int = 0, mode_of_paymen
 	against the new invoice in the same request, so the invoice shows Paid
 	right away and the collection is correctly picked up by shift reconciliation
 	(which sums Payment Entry, not any invoice-level payment fields).
+
+	If the van can't cover every item, the invoice fails ERPNext's stock validation —
+	unless the driver's Van Profile has allow_sale_without_stock and the app passes
+	allow_without_stock=1 (after warning the driver, see get_invoice_stock_shortages()).
+	The invoice is then raised without update_stock, and a Delivery Note is created
+	straight away for what the van does hold. The short quantity stays pending
+	delivery against the order until stock arrives.
 	"""
 	_require_van_user()
 	mark_as_paid = _coerce_check(mark_as_paid)
+	allow_without_stock = _coerce_check(allow_without_stock)
 	if mark_as_paid:
 		if not mode_of_payment:
 			frappe.throw("Select a mode of payment to mark this invoice as paid.")
 		_ensure_driver_mode_allowed(mode_of_payment)
 
-	so = frappe.get_doc("Sales Order", sales_order)
-	if not _is_manager() and so.owner != frappe.session.user:
-		frappe.throw("You can only invoice your own sales orders.", frappe.PermissionError)
-	if so.docstatus != 1:
-		frappe.throw("Sales Order must be submitted before creating an invoice.")
-	if (so.per_billed or 0) >= 100:
-		frappe.throw("This sales order has already been fully invoiced.")
+	so = _get_invoiceable_order(sales_order)
 
 	config = _get_driver_config(required=False)
 	van_warehouse = config.get("van_warehouse") if config else None
+
+	# Re-checked here rather than trusted from the client: the flag only means "the
+	# driver saw the warning", the Van Profile decides whether it is allowed at all.
+	# Stock is looked at again too — if it arrived since the warning, bill normally.
+	defer_delivery = False
+	if allow_without_stock:
+		if not (config and config.get("allow_sale_without_stock")):
+			frappe.throw("Selling without van stock is not enabled on your Van Profile.", frappe.PermissionError)
+		defer_delivery = bool(_van_stock_shortages(so, van_warehouse))
 
 	sinv = frappe.new_doc("Sales Invoice")
 	sinv.customer = so.customer
@@ -627,7 +844,7 @@ def create_sales_invoice(sales_order: str, mark_as_paid: int = 0, mode_of_paymen
 	sinv.selling_price_list = so.selling_price_list
 	sinv.currency = so.currency
 	sinv.conversion_rate = so.conversion_rate or 1
-	sinv.update_stock = 1
+	sinv.update_stock = 0 if defer_delivery else 1
 	if van_warehouse:
 		sinv.set_warehouse = van_warehouse
 	if so.taxes_and_charges:
@@ -670,6 +887,9 @@ def create_sales_invoice(sales_order: str, mark_as_paid: int = 0, mode_of_paymen
 	sinv.flags.ignore_permissions = True
 	sinv.insert()
 	sinv.submit()
+
+	if defer_delivery:
+		_deliver_available_stock(sinv, van_warehouse)
 
 	# `> 0` guard: Payment Entry's paid_amount is reqd, so allocating 0 raises
 	# "Paid Amount is mandatory" AFTER sinv.submit() has run — rolling back the whole

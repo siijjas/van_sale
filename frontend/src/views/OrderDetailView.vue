@@ -8,6 +8,13 @@
     <AppAlert v-else-if="error" tone="danger" :message="error" />
 
     <div v-else-if="order" class="space-y-4 pb-28">
+      <AppAlert
+        v-if="deferredNotice"
+        tone="warning"
+        title="Some items are pending delivery"
+        :message="deferredNotice"
+      />
+      <AppAlert v-if="deliveredNotice" tone="success" :message="deliveredNotice" />
       <!-- Summary -->
       <AppCard>
         <div class="flex items-start justify-between gap-3">
@@ -98,6 +105,36 @@
         {{ invoicing ? 'Creating invoice…' : markAsPaid ? 'Create paid invoice' : 'Create sales invoice' }}
       </AppButton>
     </StickyBar>
+    <StickyBar v-else-if="hasPendingDelivery">
+      <AppButton size="lg" block icon="truck" :loading="delivering" @click="deliverPending">
+        {{ delivering ? 'Delivering…' : 'Deliver pending items' }}
+      </AppButton>
+    </StickyBar>
+
+    <BottomSheet v-model="stockWarningOpen" title="Not enough van stock">
+      <div class="space-y-4">
+        <p class="text-sm text-muted">
+          The van doesn't have enough stock for these items. The invoice will be created without updating stock.
+          Whatever is in the van is delivered now; the rest stays pending until stock arrives and a Delivery Note is made.
+        </p>
+        <div class="divide-y divide-line rounded-2xl border border-line">
+          <div v-for="row in shortItems" :key="row.item_code" class="flex items-center justify-between gap-3 px-4 py-3">
+            <div class="min-w-0">
+              <p class="truncate font-semibold text-foreground">{{ row.item_name }}</p>
+              <p class="text-xs text-muted">{{ row.item_code }}</p>
+            </div>
+            <div class="shrink-0 text-right text-xs">
+              <p class="tnum font-bold text-danger">{{ row.short_qty }} {{ row.stock_uom }} short</p>
+              <p class="tnum text-muted">Need {{ row.required_qty }} • In van {{ row.available_qty }}</p>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <AppButton variant="secondary" block @click="stockWarningOpen = false">Cancel</AppButton>
+          <AppButton variant="warning" block icon="file-text" @click="confirmWithoutStock">Create invoice</AppButton>
+        </div>
+      </div>
+    </BottomSheet>
   </WorkspacePage>
 </template>
 
@@ -105,10 +142,10 @@
 import { onMounted, ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api/frappe';
-import type { SalesOrder, PaymentMode } from '../types';
+import type { SalesOrder, PaymentMode, InvoiceStockShortage } from '../types';
 import { useSessionStore } from '../stores/session';
 import WorkspacePage from '../components/WorkspacePage.vue';
-import { AppCard, AppButton, AppAlert, StatusBadge, SkeletonList, StickyBar, SegmentedControl, FormField, BaseSelect } from '../components/ui';
+import { AppCard, AppButton, AppAlert, StatusBadge, SkeletonList, StickyBar, SegmentedControl, FormField, BaseSelect, BottomSheet } from '../components/ui';
 
 const route = useRoute();
 const router = useRouter();
@@ -125,6 +162,17 @@ const invoiceCreated = ref('');
 const markAsPaid = ref(false);
 const modeOfPayment = ref('');
 const paymentModes = ref<PaymentMode[]>([]);
+const stockWarningOpen = ref(false);
+const shortItems = ref<InvoiceStockShortage[]>([]);
+const deferredNotice = ref('');
+const allowWithoutStock = computed(() => !!store.driverConfig?.allow_sale_without_stock);
+const delivering = ref(false);
+const deliveredNotice = ref('');
+// Billed in full but not yet delivered in full: sold while short of van stock.
+const hasPendingDelivery = computed(
+  () => !!order.value && order.value.docstatus === 1 && (order.value.per_billed ?? 0) >= 100
+    && (order.value.per_delivered ?? 100) < 100 && order.value.status !== 'Closed',
+);
 
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -169,15 +217,64 @@ const createInvoice = async () => {
   invoicing.value = true;
   error.value = '';
   try {
-    invoiceCreated.value = await api.createSalesInvoice(order.value.name, {
-      markAsPaid: markAsPaid.value,
-      modeOfPayment: modeOfPayment.value,
-    });
-    await load();
+    // With the Van Profile override on, warn before billing items the van can't cover.
+    // Without it there is nothing to confirm: the server rejects the shortage as before.
+    if (allowWithoutStock.value) {
+      const check = await api.getInvoiceStockShortages(order.value.name);
+      if (check.short_items.length) {
+        shortItems.value = check.short_items;
+        stockWarningOpen.value = true;
+        return;
+      }
+    }
+    await submitInvoice(false);
   } catch (e: any) {
     error.value = e?.message || 'Failed to create invoice';
   } finally {
     invoicing.value = false;
+  }
+};
+
+const submitInvoice = async (withoutStock: boolean) => {
+  if (!order.value) return;
+  invoiceCreated.value = await api.createSalesInvoice(order.value.name, {
+    markAsPaid: markAsPaid.value,
+    modeOfPayment: modeOfPayment.value,
+    allowWithoutStock: withoutStock,
+  });
+  deferredNotice.value = withoutStock
+    ? `Invoice ${invoiceCreated.value} created. Available stock was delivered; `
+      + `${shortItems.value.map((row) => `${row.short_qty} ${row.stock_uom} ${row.item_name}`).join(', ')} still to be delivered.`
+    : '';
+  await load();
+};
+
+const confirmWithoutStock = async () => {
+  stockWarningOpen.value = false;
+  invoicing.value = true;
+  error.value = '';
+  try {
+    await submitInvoice(true);
+  } catch (e: any) {
+    error.value = e?.message || 'Failed to create invoice';
+  } finally {
+    invoicing.value = false;
+  }
+};
+
+const deliverPending = async () => {
+  if (!order.value) return;
+  delivering.value = true;
+  error.value = '';
+  try {
+    const notes = await api.deliverPendingItems(order.value.name);
+    deliveredNotice.value = `Delivered from van: ${notes.join(', ')}`;
+    deferredNotice.value = '';
+    await load();
+  } catch (e: any) {
+    error.value = e?.message || 'Failed to deliver pending items';
+  } finally {
+    delivering.value = false;
   }
 };
 

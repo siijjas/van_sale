@@ -30,6 +30,7 @@
   "column_break_controls",
   "allow_rate_change",
   "allow_discount_change",
+  "allow_sale_without_stock",
   "validate_stock_on_save",
   "allow_offline_stock_dashboard",
   "section_pricing",
@@ -192,6 +193,13 @@
   },
   {
    "default": "0",
+   "description": "Let drivers add out-of-stock items to orders and submit invoices that take the van warehouse into negative stock.",
+   "fieldname": "allow_sale_without_stock",
+   "fieldtype": "Check",
+   "label": "Allow Sale Without Stock"
+  },
+  {
+   "default": "0",
    "fieldname": "validate_stock_on_save",
    "fieldtype": "Check",
    "label": "Validate Stock on Save"
@@ -289,7 +297,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-28 00:00:00.000000",
+ "modified": "2026-09-29 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Van Sale",
  "name": "Van Profile",
