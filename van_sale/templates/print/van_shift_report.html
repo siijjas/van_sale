@@ -50,7 +50,7 @@
 		<tr><td>Shift date</td><td>{{ frappe.format_date(r.shift.shift_date) }}</td></tr>
 		<tr><td>Opened</td><td>{{ frappe.format(r.shift.period_start, {"fieldtype": "Datetime"}) if r.shift.period_start else "" }}</td></tr>
 		{%- if r.shift.period_end %}<tr><td>Closed</td><td>{{ frappe.format(r.shift.period_end, {"fieldtype": "Datetime"}) }}</td></tr>{% endif %}
-		{%- if r.shift.closed_by %}<tr><td>Closed by</td><td>{{ frappe.utils.get_fullname(r.shift.closed_by) }}</td></tr>{% endif %}
+		{%- if r.shift.closed_by %}<tr><td>Closed by</td><td>{{ r.shift.closed_by_name or r.shift.closed_by }}</td></tr>{% endif %}
 		<tr><td>Opening shift</td><td>{{ r.shift.opening_shift }}</td></tr>
 		{%- if r.shift.closing_shift %}<tr><td>Closing shift</td><td>{{ r.shift.closing_shift }}</td></tr>{% endif %}
 		<tr><td>Printed</td><td>{{ frappe.format(r.generated_at, {"fieldtype": "Datetime"}) }}</td></tr>

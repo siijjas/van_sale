@@ -239,6 +239,7 @@ def _header(doc, opening_shift: str, closing_shift: str | None) -> dict:
 		"period_end": str(doc.period_end) if doc.get("period_end") else None,
 		"status": doc.status,
 		"closed_by": doc.get("closed_by"),
+		"closed_by_name": frappe.utils.get_fullname(doc.get("closed_by")) if doc.get("closed_by") else None,
 		"notes": doc.notes,
 	}
 

@@ -496,6 +496,7 @@ export interface ShiftReport {
     period_end: string | null;
     status: string;
     closed_by?: string | null;
+    closed_by_name?: string | null;
     notes: string | null;
   };
   totals: {
