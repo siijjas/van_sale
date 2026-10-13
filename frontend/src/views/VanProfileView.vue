@@ -143,8 +143,21 @@
             <ToggleRow v-model="form.allow_rate_change" label="Allow modifying item rates" />
             <ToggleRow v-model="form.allow_discount_change" label="Allow modifying discounts" />
             <ToggleRow v-if="!isFieldSales" v-model="form.allow_sale_without_stock" label="Allow selling items not in van stock" />
+            <ToggleRow v-if="!isFieldSales" v-model="form.hide_unavailable_items" label="Hide items not in van stock from the catalog" />
+            <ToggleRow v-if="!isFieldSales" v-model="form.allow_credit_sale" label="Allow credit sales (invoice now, collect later)" />
+            <ToggleRow v-if="!isFieldSales" v-model="form.allow_return" label="Allow returns" />
+            <ToggleRow v-model="form.show_customer_balance" label="Show customer balance and ledger" />
+            <ToggleRow v-model="form.allow_create_customer" label="Allow creating new customers" />
+            <ToggleRow v-if="form.allow_create_customer" v-model="form.allow_duplicate_customer_names" label="Allow duplicate customer names" />
             <ToggleRow v-model="form.use_shifts" label="Use shifts (opening float, cash reconciliation at close)" />
             <ToggleRow v-if="form.use_shifts" v-model="form.require_open_shift" label="Require an open shift to sell, collect or log expenses" />
+            <ToggleRow v-if="form.use_shifts" v-model="form.allow_driver_close_shift" label="Staff can close their own shift (off: managers only)" />
+            <ToggleRow v-if="form.use_shifts" v-model="form.hide_expected_amount" label="Blind cash count (hide expected amounts at close)" />
+          </div>
+          <div v-if="!isFieldSales && form.allow_return" class="grid gap-4 md:grid-cols-2">
+            <FormField label="Return validity (days)" hint="Items can only be returned if the customer bought them within this many days. 0 = no limit.">
+              <BaseInput v-model="form.return_validity_days" type="number" inputmode="numeric" placeholder="0" />
+            </FormField>
           </div>
           <div v-if="form.use_shifts" class="grid gap-4 md:grid-cols-2">
             <FormField label="Variance tolerance" hint="A closing whose counted cash is off by more than this is flagged for you. 0 flags any difference. Never blocks closing.">
@@ -182,6 +195,13 @@
                 <option value="Net Total">Net Total</option>
               </BaseSelect>
             </FormField>
+            <FormField v-if="form.allow_discount_change" label="Max discount %" hint="Largest order discount staff may give. 0 = no cap.">
+              <BaseInput v-model="form.max_discount_percent" type="number" inputmode="decimal" min="0" max="100" placeholder="0" />
+            </FormField>
+          </div>
+          <div class="grid gap-2 md:grid-cols-2">
+            <ToggleRow v-model="form.use_customer_price_list" label="Use the customer's own price list when they have one" />
+            <ToggleRow v-model="form.allow_zero_rated_items" label="Allow zero rated items (lines priced at 0)" />
           </div>
         </FormSection>
 
@@ -192,6 +212,7 @@
             <ToggleRow v-model="form.allow_expense" label="Allow expenses" />
             <ToggleRow v-model="form.allow_cash_deposit" label="Allow deposits to office" />
             <ToggleRow v-model="form.require_cash_movement_remarks" label="Require remarks" />
+            <ToggleRow v-model="form.allow_cancel_cash_movement" label="Staff can cancel their own (while the shift is open)" />
           </div>
           <div class="grid gap-4 md:grid-cols-2">
             <FormField label="Cash drawer account" hint="Blank: the Default Cash Mode's account for this company.">
@@ -376,6 +397,20 @@ const defaultForm = (): Partial<VanProfile> => ({
   allowed_payment_modes: [],
   allowed_customer_groups: [],
   assigned_drivers: [],
+  // POS-profile style controls
+  max_discount_percent: 0,
+  use_customer_price_list: false,
+  allow_zero_rated_items: false,
+  allow_credit_sale: true,
+  allow_return: true,
+  return_validity_days: 0,
+  hide_unavailable_items: false,
+  show_customer_balance: true,
+  allow_create_customer: true,
+  allow_duplicate_customer_names: false,
+  hide_expected_amount: false,
+  allow_driver_close_shift: true,
+  allow_cancel_cash_movement: false,
 });
 
 const form = ref<Partial<VanProfile>>(defaultForm());

@@ -1,7 +1,7 @@
 <template>
   <WorkspacePage back :eyebrow="actionLabel" title="Select customer" width="default">
     <template #actions>
-      <AppButton size="sm" icon="plus" @click="openNewCustomer">New customer</AppButton>
+      <AppButton v-if="canCreateCustomer" size="sm" icon="plus" @click="openNewCustomer">New customer</AppButton>
     </template>
 
     <div class="space-y-4">
@@ -14,7 +14,7 @@
       <SkeletonList v-if="loading" :rows="5" height="4rem" />
       <EmptyState v-else-if="!customers.length" icon="users" title="No customers found" description="Try a different search term, or add this customer as new.">
         <template #action>
-          <AppButton variant="secondary" icon="plus" @click="openNewCustomer">New customer</AppButton>
+          <AppButton v-if="canCreateCustomer" variant="secondary" icon="plus" @click="openNewCustomer">New customer</AppButton>
         </template>
       </EmptyState>
       <div v-else class="space-y-2.5">
@@ -123,6 +123,8 @@ const selectCustomer = (customer: Customer) => {
   } else router.push({ name: 'items' });
 };
 
+// Van Profile.allow_create_customer off: staff pick from the list only.
+const canCreateCustomer = computed(() => store.isManager || store.capabilities.can_create_customer !== false);
 const openNewCustomer = () => {
   newCustomerName.value = txt.value.trim();
   newCustomerMobile.value = '';

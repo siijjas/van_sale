@@ -1,7 +1,7 @@
 import json
 import math
 import frappe
-from frappe.utils import nowdate, flt
+from frappe.utils import add_days, nowdate, flt
 from van_sale.van_sale.shift import require_open_shift
 from van_sale.van_sale.utils import (
 	_coerce_check,
@@ -47,11 +47,13 @@ def _ensure_payment_schedule(doc):
 	)
 
 
-def _check_daily_credit_limit(order_grand_total: float):
+def _check_daily_credit_limit(order_grand_total: float, exclude: str | None = None):
 	"""Raise if submitting this order would exceed the driver's daily credit limit.
 
 	The check sums all today's Sales Orders (draft + submitted) for the current user
 	and compares against the configured daily_credit_limit. Managers are exempt.
+	`exclude` is the order being submitted: it is still a draft dated today, so
+	without excluding it the same amount would be counted twice.
 	"""
 	if _is_manager():
 		return
@@ -64,11 +66,10 @@ def _check_daily_credit_limit(order_grand_total: float):
 
 	today = nowdate()
 	user = frappe.session.user
-	existing = frappe.get_list(
-		"Sales Order",
-		filters={"docstatus": ["!=", 2], "transaction_date": today, "owner": user},
-		fields=["grand_total"],
-	)
+	filters = {"docstatus": ["!=", 2], "transaction_date": today, "owner": user}
+	if exclude:
+		filters["name"] = ["!=", exclude]
+	existing = frappe.get_list("Sales Order", filters=filters, fields=["grand_total"])
 	existing_total = sum(d.grand_total for d in existing)
 	if existing_total + order_grand_total > limit:
 		frappe.throw(
@@ -155,13 +156,81 @@ def _check_discount_change_allowed(doc):
 	if _is_manager():
 		return
 	config = _get_driver_config(required=False)
-	if not config or config.get("allow_discount_change"):
+	if not config:
 		return
-	if flt(doc.additional_discount_percentage) or flt(doc.discount_amount):
+	if not config.get("allow_discount_change"):
+		if flt(doc.additional_discount_percentage) or flt(doc.discount_amount):
+			frappe.throw(
+				"Discounts are not allowed for this driver profile.",
+				frappe.PermissionError,
+			)
+		return
+	# Allowed, but capped (Van Profile.max_discount_percent; 0 = no cap). A flat amount is
+	# measured against the line total before tax, which is the figure the driver sees.
+	cap = flt(config.get("max_discount_percent"))
+	if cap <= 0:
+		return
+	percent = flt(doc.additional_discount_percentage)
+	if not percent and flt(doc.discount_amount) and flt(doc.total):
+		percent = flt(doc.discount_amount) / flt(doc.total) * 100
+	if percent > cap + 0.001:
 		frappe.throw(
-			"Discounts are not allowed for this driver profile.",
+			f"This discount ({percent:.1f}%) is above the {cap:g}% your profile allows.",
 			frappe.PermissionError,
 		)
+
+
+def _check_zero_rated_lines(doc):
+	"""Raise on a line priced at 0 unless the driver's profile allows zero rated items.
+	Managers and drivers without a profile are exempt."""
+	if _is_manager():
+		return
+	config = _get_driver_config(required=False)
+	if not config or config.get("allow_zero_rated_items"):
+		return
+	for item in doc.items:
+		if flt(item.rate) <= 0:
+			frappe.throw(
+				f"Item '{item.item_code}' has no price. Zero rated items are not allowed for this profile.",
+				frappe.PermissionError,
+			)
+
+
+def _resolve_price_list(config: dict | None, customer: str | None) -> str | None:
+	"""The profile's price list, or the customer's own default price list when the
+	profile's use_customer_price_list is on and the customer has one."""
+	if not config:
+		return None
+	if customer and _coerce_check(config.get("use_customer_price_list")):
+		customer_price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+		if customer_price_list:
+			return customer_price_list
+	return config.get("selling_price_list") or None
+
+
+def _check_return_validity(customer: str, lines, config: dict | None):
+	"""Van Profile.return_validity_days: each returned item must appear on a submitted
+	invoice for this customer within that many days. 0 = no limit; managers are exempt."""
+	days = int(flt((config or {}).get("return_validity_days")))
+	if days <= 0 or _is_manager():
+		return
+	since = add_days(nowdate(), -days)
+	for row in lines:
+		item_code = row.get("item_code")
+		if not item_code:
+			continue
+		bought = frappe.db.sql(
+			"""select 1 from `tabSales Invoice Item` sii
+			join `tabSales Invoice` si on si.name = sii.parent
+			where si.docstatus = 1 and si.is_return = 0 and si.customer = %s
+			and si.posting_date >= %s and sii.item_code = %s limit 1""",
+			(customer, since, item_code),
+		)
+		if not bought:
+			frappe.throw(
+				f"{customer} has not bought '{item_code}' in the last {days} days, so it cannot be returned.",
+				frappe.PermissionError,
+			)
 
 
 def _coerce_order_lines(items):
@@ -209,8 +278,9 @@ def _apply_order_payload(doc, customer, items, discount_percent, discount_amount
 	if config.get("van_warehouse"):
 		doc.set_warehouse = config["van_warehouse"]
 
-	if config.get("selling_price_list"):
-		doc.selling_price_list = config["selling_price_list"]
+	price_list = _resolve_price_list(config, customer)
+	if price_list:
+		doc.selling_price_list = price_list
 	if config.get("currency"):
 		doc.currency = config["currency"]
 
@@ -263,6 +333,7 @@ def _apply_order_payload(doc, customer, items, discount_percent, discount_amount
 	# forbids is now rejected when the draft is saved, not only when it is confirmed.
 	_check_rate_change_allowed(doc)
 	_check_discount_change_allowed(doc)
+	_check_zero_rated_lines(doc)
 	_ensure_payment_schedule(doc)
 
 	# Sales Order writes go through this endpoint precisely so the Van Sales Driver
@@ -313,9 +384,10 @@ def submit_sales_order(name: str):
 	if not _is_manager() and doc.owner != frappe.session.user:
 		frappe.throw("You can only submit your own sales orders.", frappe.PermissionError)
 
-	_check_daily_credit_limit(doc.grand_total or 0)
+	_check_daily_credit_limit(doc.grand_total or 0, exclude=doc.name)
 	_check_rate_change_allowed(doc)
 	_check_discount_change_allowed(doc)
+	_check_zero_rated_lines(doc)
 	_apply_defaults(doc)
 	doc.run_method("set_missing_values")
 	doc.run_method("calculate_taxes_and_totals")
@@ -344,11 +416,18 @@ def create_customer(customer_name: str, mobile_no: str = None):
 	_require_van_user() above.
 	"""
 	_require_van_user()
+	_require_capability("can_create_customer", "create customers")
 	customer_name = (customer_name or "").strip()
 	if not customer_name:
 		frappe.throw("Customer name is required")
 
 	config = _get_driver_config(required=False) or {}
+	if config and not _coerce_check(config.get("allow_duplicate_customer_names")):
+		existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
+		if existing:
+			frappe.throw(
+				f"A customer named '{customer_name}' already exists ({existing}). Pick them from the list instead.",
+			)
 	selling_settings = frappe.get_single("Selling Settings")
 	allowed_groups = config.get("allowed_customer_groups") or []
 	customer_group = allowed_groups[0] if allowed_groups else selling_settings.customer_group
@@ -826,6 +905,8 @@ def create_sales_invoice(
 	require_open_shift("invoice an order")
 	mark_as_paid = _coerce_check(mark_as_paid)
 	allow_without_stock = _coerce_check(allow_without_stock)
+	if not mark_as_paid:
+		_require_capability("can_credit_sale", "raise an invoice without collecting payment")
 	if mark_as_paid:
 		if not mode_of_payment:
 			frappe.throw("Select a mode of payment to mark this invoice as paid.")
@@ -947,6 +1028,7 @@ def create_sales_return(customer: str, items):
 	config = _get_driver_config(required=False)
 	van_warehouse = config.get("van_warehouse") if config else None
 	lines = items if isinstance(items, list) else _parse_stock_transfer_lines(items)
+	_check_return_validity(customer, lines, config)
 
 	doc = frappe.new_doc("Sales Invoice")
 	doc.customer = customer
@@ -961,8 +1043,9 @@ def create_sales_return(customer: str, items):
 		doc.company = _default_company()
 	doc.posting_date = nowdate()
 	if config:
-		if config.get("selling_price_list"):
-			doc.selling_price_list = config["selling_price_list"]
+		price_list = _resolve_price_list(config, customer)
+		if price_list:
+			doc.selling_price_list = price_list
 		if config.get("currency"):
 			doc.currency = config["currency"]
 

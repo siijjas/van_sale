@@ -25,6 +25,13 @@ export interface Capabilities {
   can_view_stock: boolean;
   uses_shifts: boolean;
   requires_open_shift: boolean;
+  /** Profile switches (POS-profile style controls). */
+  can_credit_sale: boolean;
+  can_create_customer: boolean;
+  can_close_shift: boolean;
+  can_cancel_cash_movement: boolean;
+  shows_customer_balance: boolean;
+  blind_shift_close: boolean;
 }
 
 // The runtime driver config served in UserSession. It is derived entirely from
@@ -66,6 +73,20 @@ export interface DriverConfig {
   expense_account?: string;
   cost_center?: string;
   write_off_account?: string;
+  // POS-profile style controls
+  max_discount_percent?: number;
+  use_customer_price_list?: boolean;
+  allow_zero_rated_items?: boolean;
+  allow_credit_sale?: boolean;
+  allow_return?: boolean;
+  return_validity_days?: number;
+  hide_unavailable_items?: boolean;
+  show_customer_balance?: boolean;
+  allow_create_customer?: boolean;
+  allow_duplicate_customer_names?: boolean;
+  hide_expected_amount?: boolean;
+  allow_driver_close_shift?: boolean;
+  allow_cancel_cash_movement?: boolean;
   capabilities?: Capabilities;
 }
 
@@ -125,12 +146,15 @@ export interface OutsideWindow {
 export interface PaymentReconciliationRow {
   mode_of_payment: string;
   opening_amount: number;
-  expected_amount: number;
+  /** null on a blind count (Van Profile.hide_expected_amount). */
+  expected_amount: number | null;
   closing_amount: number;
-  difference: number;
+  difference: number | null;
 }
 
 export interface ShiftClosingSummary {
+  /** The driver counts without seeing expected amounts (Van Profile.hide_expected_amount). */
+  blind: boolean;
   opening_shift: string;
   driver: string;
   driver_name: string;
@@ -150,7 +174,7 @@ export interface ShiftClosingSummary {
   /** Cash handed to the office mid-shift (Van Cash Movement, type Deposit). */
   total_deposits: number;
   total_opening_float: number;
-  expected_cash: number;
+  expected_cash: number | null;
   /** From the Van Profile; a net difference beyond it is flagged, never blocked. */
   variance_tolerance: number;
   draft_orders: ShiftDraftOrder[];
@@ -235,6 +259,20 @@ export interface VanProfile {
   cash_movement_max_amount: number;
   require_cash_movement_remarks: boolean;
   allowed_expense_accounts: string[];
+  // POS-profile style controls
+  max_discount_percent: number;
+  use_customer_price_list: boolean;
+  allow_zero_rated_items: boolean;
+  allow_credit_sale: boolean;
+  allow_return: boolean;
+  return_validity_days: number;
+  hide_unavailable_items: boolean;
+  show_customer_balance: boolean;
+  allow_create_customer: boolean;
+  allow_duplicate_customer_names: boolean;
+  hide_expected_amount: boolean;
+  allow_driver_close_shift: boolean;
+  allow_cancel_cash_movement: boolean;
   capabilities?: Capabilities;
 }
 

@@ -106,6 +106,12 @@ def _capabilities(config: dict | None) -> dict:
 			"can_view_stock": False,
 			"uses_shifts": True,
 			"requires_open_shift": False,
+			"can_credit_sale": True,
+			"can_create_customer": True,
+			"can_close_shift": True,
+			"can_cancel_cash_movement": True,
+			"shows_customer_balance": True,
+			"blind_shift_close": False,
 		}
 	is_field = (config.get("profile_type") or PROFILE_TYPE_VAN) == PROFILE_TYPE_FIELD
 	uses_shifts = _coerce_check(config.get("use_shifts", True))
@@ -115,11 +121,18 @@ def _capabilities(config: dict | None) -> dict:
 		# returns are back-office work, and there is no van to load or count.
 		"can_invoice": not is_field,
 		"can_deliver": not is_field,
-		"can_return": not is_field,
+		"can_return": not is_field and _coerce_check(config.get("allow_return", True)),
 		"can_load_stock": not is_field,
 		"can_view_stock": not is_field,
 		"uses_shifts": uses_shifts,
 		"requires_open_shift": uses_shifts and _coerce_check(config.get("require_open_shift")),
+		# Profile switches (POS-profile style controls).
+		"can_credit_sale": not is_field and _coerce_check(config.get("allow_credit_sale", True)),
+		"can_create_customer": _coerce_check(config.get("allow_create_customer", True)),
+		"can_close_shift": uses_shifts and _coerce_check(config.get("allow_driver_close_shift", True)),
+		"can_cancel_cash_movement": uses_shifts and _coerce_check(config.get("allow_cancel_cash_movement")),
+		"shows_customer_balance": _coerce_check(config.get("show_customer_balance", True)),
+		"blind_shift_close": uses_shifts and _coerce_check(config.get("hide_expected_amount")),
 	}
 
 

@@ -19,7 +19,7 @@ const router = createRouter({
     { path: '/history', name: 'history', component: HistoryView },
     { path: '/orders/:name', name: 'order-detail', component: OrderDetailView },
     { path: '/payment', name: 'payment', component: () => import('../views/PaymentEntryView.vue') },
-    { path: '/ledger', name: 'ledger', component: () => import('../views/CustomerLedgerView.vue') },
+    { path: '/ledger', name: 'ledger', component: () => import('../views/CustomerLedgerView.vue'), meta: { capability: 'shows_customer_balance' } },
     { path: '/stock', name: 'stock-dashboard', component: () => import('../views/DriverStockView.vue'), meta: { requiresDriverConfig: true, capability: 'can_view_stock' } },
     { path: '/transfer', name: 'stock-transfer', component: () => import('../views/StockTransferView.vue'), meta: { requiresDriverConfig: true, capability: 'can_load_stock' } },
     { path: '/driver-setup', name: 'driver-setup', redirect: { name: 'settings' } },

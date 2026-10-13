@@ -78,7 +78,7 @@
               <p class="tnum shrink-0 font-bold text-foreground">{{ currency }} {{ fmt(m.amount) }}</p>
             </div>
             <p v-if="m.remarks" class="mt-3 rounded-xl border border-line bg-card-muted p-2.5 text-sm text-muted">{{ m.remarks }}</p>
-            <div v-if="store.isManager" class="mt-3 flex justify-end">
+            <div v-if="store.isManager || (store.capabilities.can_cancel_cash_movement && m.driver === store.session?.user)" class="mt-3 flex justify-end">
               <AppButton variant="danger" size="sm" icon="x" :loading="cancelling === m.name" @click="cancel(m)">Cancel</AppButton>
             </div>
           </AppCard>

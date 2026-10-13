@@ -11,6 +11,12 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   can_view_stock: false,
   uses_shifts: true,
   requires_open_shift: false,
+  can_credit_sale: true,
+  can_create_customer: true,
+  can_close_shift: true,
+  can_cancel_cash_movement: true,
+  shows_customer_balance: true,
+  blind_shift_close: false,
 };
 import * as api from '../api/frappe';
 

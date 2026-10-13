@@ -79,7 +79,7 @@
           <label class="text-xs font-bold uppercase tracking-wider text-muted">Invoice type</label>
           <SegmentedControl
             :model-value="markAsPaid ? 'paid' : 'credit'"
-            :options="[{ value: 'credit', label: 'Credit (pay later)' }, { value: 'paid', label: 'Paid now' }]"
+            :options="canCreditSale ? [{ value: 'credit', label: 'Credit (pay later)' }, { value: 'paid', label: 'Paid now' }] : [{ value: 'paid', label: 'Paid now' }]"
             @update:modelValue="(v: string) => (markAsPaid = v === 'paid')"
           />
           <FormField v-if="markAsPaid" label="Mode of payment" required>
@@ -166,7 +166,9 @@ const error = ref('');
 const submitting = ref(false);
 const invoicing = ref(false);
 const invoiceCreated = ref('');
-const markAsPaid = ref(false);
+// Van Profile.allow_credit_sale off: every invoice is collected when it is raised.
+const canCreditSale = computed(() => store.isManager || store.capabilities.can_credit_sale !== false);
+const markAsPaid = ref(!canCreditSale.value);
 const modeOfPayment = ref('');
 const paymentModes = ref<PaymentMode[]>([]);
 const stockWarningOpen = ref(false);

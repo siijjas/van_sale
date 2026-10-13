@@ -156,10 +156,15 @@ def get_shift_cash_movements(opening_shift: str | None = None):
 
 @frappe.whitelist()
 def cancel_cash_movement(name: str):
-	"""Managers only: reverse a movement (and its Journal Entry). Only while the shift
-	is still open — once closed, the closing's expected cash already counted it."""
-	_manager_only()
+	"""Reverse a movement (and its Journal Entry). Managers always may; a driver may
+	cancel their own when the profile's allow_cancel_cash_movement is on. Only while
+	the shift is still open — once closed, the closing's expected cash already counted it."""
+	_require_van_user()
 	doc = frappe.get_doc("Van Cash Movement", name)
+	if not _is_manager():
+		_require_capability("can_cancel_cash_movement", "cancel cash movements")
+		if doc.driver != frappe.session.user:
+			frappe.throw("You can only cancel your own cash movements.", frappe.PermissionError)
 	if doc.docstatus != 1:
 		frappe.throw("Only a submitted cash movement can be cancelled.")
 	status = frappe.db.get_value("Van Shift Opening", doc.opening_shift, "status")

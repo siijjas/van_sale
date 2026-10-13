@@ -287,10 +287,13 @@ Everything is backed by standard ERPNext documents (Sales Order, Sales Invoice, 
 | Warehouses | Van Sales: source warehouse and van warehouse (required, different). Field Sales: an optional read-only stock warehouse |
 | Drivers / customers / payments | Assigned staff (role is synced automatically), allowed customer groups, allowed payment modes, default cash mode |
 | Operational controls | Daily credit limit, low stock threshold, rate / discount changes, selling without van stock, **Use shifts**, **Require open shift**, **Variance tolerance**, strict stock validation, offline stock dashboard, pricing rules |
-| Cash movements | Allow expenses, allow deposits, cash drawer account, back office cash account, max amount per movement, require remarks, allowed expense accounts, default expense account, cost center |
-| Pricing, print, accounting | Price list, currency, taxes template, discount basis, print format, letter head, income / expense / write-off accounts |
+| Staff controls (POS-profile style) | **Hide items not in van stock**, **Allow credit sales** (off: every invoice is paid when raised), **Allow returns** + **Return validity (days)**, **Show customer balance**, **Allow creating customers** + **Allow duplicate customer names**, **Staff can close their own shift** (off: managers only), **Blind cash count** (expected amounts hidden from the driver at close) |
+| Cash movements | Allow expenses, allow deposits, cash drawer account, back office cash account, max amount per movement, require remarks, **staff can cancel their own** (while the shift is open), allowed expense accounts, default expense account, cost center |
+| Pricing, print, accounting | Price list, currency, taxes template, discount basis, **Max discount %**, **Use the customer's price list**, **Allow zero rated items**, print format, letter head, income / expense / write-off accounts |
 
 Saving goes through `saveVanProfile()`; the profile controller validates the type-specific rules and clears the driver config cache.
+
+Every control is enforced server-side in the endpoint it concerns (`sales.py`, `shift.py`, `cash_movement.py`) and mirrored in the app through `capabilities` (`utils._capabilities`): `can_credit_sale`, `can_return`, `can_create_customer`, `can_close_shift`, `can_cancel_cash_movement`, `shows_customer_balance`, `blind_shift_close`. Managers are never bound by them.
 
 ---
 

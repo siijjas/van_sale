@@ -26,7 +26,7 @@
 
       <div v-if="customer" class="space-y-5">
         <!-- Customer summary -->
-        <AppCard v-if="customerSummary" class="bg-primary/[0.07] border-primary/20" padding="sm">
+        <AppCard v-if="customerSummary && showBalance" class="bg-primary/[0.07] border-primary/20" padding="sm">
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium text-muted">Outstanding balance</span>
             <span class="tnum text-lg font-bold text-foreground">{{ currency }} {{ (customerSummary.outstanding_balance || 0).toFixed(2) }}</span>
@@ -211,6 +211,8 @@ import WorkspacePage from '../components/WorkspacePage.vue';
 import { AppCard, AppButton, AppAlert, AppIcon, FormField, BaseInput, BaseSelect, SearchBar, SegmentedControl, SkeletonList, EmptyState, StickyBar } from '../components/ui';
 
 const store = useSessionStore();
+// Van Profile.show_customer_balance off: staff never see what the customer owes.
+const showBalance = computed(() => store.isManager || store.capabilities.shows_customer_balance !== false);
 const route = useRoute();
 const router = useRouter();
 

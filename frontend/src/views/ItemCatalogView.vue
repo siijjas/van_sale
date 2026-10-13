@@ -139,6 +139,9 @@ const customerNameParam = route.query.customer_name as string | undefined;
 
 const search = ref('');
 const items = ref<Item[]>([]);
+// Van Profile.hide_unavailable_items: only what the van actually holds is listed.
+// Field Sales never sells from a warehouse, so it always sees the full catalog.
+const hideUnavailable = computed(() => !store.isManager && !store.isFieldSales && Boolean(store.driverConfig?.hide_unavailable_items));
 const loading = ref(true);
 const error = ref('');
 const currency = computed(() => store.currencyDisplay);
@@ -161,7 +164,7 @@ const loadItems = async () => {
   loading.value = true;
   error.value = '';
   try {
-    items.value = await api.listItems(search.value, store.customer?.name);
+    items.value = await api.listItems(search.value, store.customer?.name, { hideUnavailable: hideUnavailable.value });
   } catch (e: any) {
     error.value = e?.message || 'Failed to load items';
   } finally {

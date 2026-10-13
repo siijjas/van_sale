@@ -31,11 +31,18 @@
         :message="`${outsideText} on ${shiftDay(summary.shift_date)} before the shift opened and on no other closing. They are not in this closing's totals.`"
       />
 
+      <AppAlert
+        v-if="summary.blind"
+        tone="info"
+        title="Blind count"
+        message="Count each payment mode and enter what you actually have. Your profile hides the expected amounts; your manager sees the difference on the closing report."
+      />
+
       <div class="grid grid-cols-2 gap-3">
         <KpiTile label="Total sales" :value="`${currency} ${fmt(summary.total_sales)}`" :sub="`${qty(summary.total_quantity)} units · tax ${currency} ${fmt(summary.total_taxes)}`" icon="cart" tone="primary" />
         <KpiTile label="Collections" :value="`${currency} ${fmt(summary.total_collections)}`" icon="wallet" tone="success" />
         <KpiTile label="Opening float" :value="`${currency} ${fmt(summary.total_opening_float)}`" icon="briefcase" tone="info" />
-        <KpiTile label="Expected cash" :value="`${currency} ${fmt(summary.expected_cash)}`" icon="banknote" tone="primary" />
+        <KpiTile v-if="!summary.blind" label="Expected cash" :value="`${currency} ${fmt(summary.expected_cash ?? 0)}`" icon="banknote" tone="primary" />
         <KpiTile v-if="summary.total_expenses > 0" :class="summary.total_deposits > 0 ? '' : 'col-span-2'" label="Expenses paid" :value="`${currency} ${fmt(summary.total_expenses)}`" icon="file-text" tone="warning" />
         <KpiTile v-if="summary.total_deposits > 0" :class="summary.total_expenses > 0 ? '' : 'col-span-2'" label="Deposited to office" :value="`${currency} ${fmt(summary.total_deposits)}`" icon="banknote" tone="info" />
       </div>
@@ -47,19 +54,19 @@
           <div class="flex items-center justify-between">
             <span class="text-sm font-bold text-foreground">{{ row.mode_of_payment }}</span>
             <span
-              v-if="diff(row) !== 0"
+              v-if="!summary.blind && diff(row) !== 0"
               class="tnum text-xs font-bold"
               :class="diff(row) > 0 ? 'text-success' : 'text-danger'"
             >{{ diff(row) > 0 ? '+' : '' }}{{ currency }} {{ diff(row).toFixed(2) }}</span>
           </div>
-          <div class="grid grid-cols-3 gap-2 text-center text-xs">
+          <div class="grid gap-2 text-center text-xs" :class="summary.blind ? 'grid-cols-2' : 'grid-cols-3'">
             <div class="rounded-xl bg-muted/40 py-1.5">
               <p class="opacity-60">Opening</p>
               <p class="tnum font-semibold text-foreground">{{ fmt(row.opening_amount) }}</p>
             </div>
-            <div class="rounded-xl bg-muted/40 py-1.5">
+            <div v-if="!summary.blind" class="rounded-xl bg-muted/40 py-1.5">
               <p class="opacity-60">Expected</p>
-              <p class="tnum font-semibold text-foreground">{{ fmt(row.expected_amount) }}</p>
+              <p class="tnum font-semibold text-foreground">{{ fmt(row.expected_amount ?? 0) }}</p>
             </div>
             <div class="text-left">
               <p class="mb-0.5 opacity-60">Counted</p>
@@ -69,7 +76,7 @@
         </div>
 
         <div
-          v-if="netDifference !== 0"
+          v-if="!summary.blind && netDifference !== 0"
           class="flex items-center justify-between rounded-2xl border px-4 py-3"
           :class="varianceStatus === 'Within Tolerance'
             ? 'border-warning/25 bg-warning/10 text-warning'
@@ -131,7 +138,7 @@ const notes = ref('');
 
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qty = (n?: number) => (n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
-const diff = (row: PaymentReconciliationRow) => (Number(row.closing_amount) || 0) - row.expected_amount;
+const diff = (row: PaymentReconciliationRow) => (Number(row.closing_amount) || 0) - (row.expected_amount ?? 0);
 const netDifference = computed(() => rows.value.reduce((sum, r) => sum + diff(r), 0));
 // Mirrors shift closing's variance_status (flag only; closing is never blocked).
 const varianceStatus = computed<VarianceStatus>(() => {

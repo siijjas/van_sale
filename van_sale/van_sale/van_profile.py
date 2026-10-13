@@ -24,6 +24,22 @@ from van_sale.van_sale.utils import (
 	_default_company, _driver_cache_key, _driver_stock_cache_key,
 )
 
+# Check fields added for the POS-profile style controls, with the default a new profile
+# gets. Existing rows received the same defaults from the column default on migrate.
+PROFILE_CONTROL_CHECKS = {
+	"allow_credit_sale": True,
+	"show_customer_balance": True,
+	"allow_create_customer": True,
+	"allow_duplicate_customer_names": False,
+	"hide_unavailable_items": False,
+	"allow_return": True,
+	"hide_expected_amount": False,
+	"allow_driver_close_shift": True,
+	"use_customer_price_list": False,
+	"allow_zero_rated_items": False,
+	"allow_cancel_cash_movement": False,
+}
+
 
 # ─── Setup Options ─────────────────────────────────────────────────────────────
 
@@ -173,6 +189,20 @@ def list_van_profiles():
 			"cash_movement_max_amount",
 			"require_cash_movement_remarks",
 			"is_active",
+			# POS-profile style controls
+			"max_discount_percent",
+			"return_validity_days",
+			"allow_credit_sale",
+			"show_customer_balance",
+			"allow_create_customer",
+			"allow_return",
+			"allow_driver_close_shift",
+			"allow_duplicate_customer_names",
+			"hide_unavailable_items",
+			"hide_expected_amount",
+			"use_customer_price_list",
+			"allow_zero_rated_items",
+			"allow_cancel_cash_movement",
 		],
 		order_by="profile_name asc",
 	)
@@ -223,7 +253,7 @@ def list_van_profiles():
 			"allow_rate_change", "allow_discount_change", "allow_sale_without_stock", "use_shifts", "require_open_shift", "validate_stock_on_save",
 			"allow_offline_stock_dashboard", "ignore_pricing_rule", "disable_rounded_total",
 			"allow_expense", "allow_cash_deposit", "require_cash_movement_remarks",
-			"is_active",
+			"is_active", *PROFILE_CONTROL_CHECKS,
 		):
 			row[check_field] = _coerce_check(row.get(check_field))
 
@@ -281,6 +311,11 @@ def save_van_profile(payload):
 	doc.cash_movement_max_amount = _to_float(data.get("cash_movement_max_amount"))
 	doc.require_cash_movement_remarks = 1 if _coerce_check(data.get("require_cash_movement_remarks")) else 0
 	doc.is_active = 1 if _coerce_check(data.get("is_active", True)) else 0
+	# POS-profile style controls (see PROFILE_CONTROL_CHECKS for the defaults).
+	for field, default in PROFILE_CONTROL_CHECKS.items():
+		doc.set(field, 1 if _coerce_check(data.get(field, default)) else 0)
+	doc.max_discount_percent = min(max(_to_float(data.get("max_discount_percent")), 0), 100)
+	doc.return_validity_days = max(int(_to_float(data.get("return_validity_days"))), 0)
 
 	# Assigned drivers child table
 	doc.set("assigned_drivers", [])
@@ -465,6 +500,9 @@ def _build_van_profile_payload(doc) -> dict:
 		"cash_movement_max_amount": _to_float(doc.cash_movement_max_amount),
 		"require_cash_movement_remarks": _coerce_check(doc.require_cash_movement_remarks),
 		"is_active": _coerce_check(doc.is_active),
+		"max_discount_percent": _to_float(doc.get("max_discount_percent")),
+		"return_validity_days": int(_to_float(doc.get("return_validity_days"))),
+		**{field: _coerce_check(doc.get(field)) for field in PROFILE_CONTROL_CHECKS},
 		"assigned_drivers": [
 			{"driver_user": row.driver_user, "driver_full_name": row.driver_full_name}
 			for row in (doc.assigned_drivers or [])

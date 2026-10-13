@@ -342,7 +342,18 @@ async function getDefaultWarehouse(): Promise<string | null> {
 
 const DEFAULT_SELLING_PRICE_LIST = 'Standard Selling';
 const DEFAULT_NAMING_SERIES = 'SO-';
-export async function listItems(search?: string, customer?: string): Promise<Item[]> {
+/** Customer.default_price_list, for Van Profile.use_customer_price_list. */
+async function getCustomerPriceList(customer: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/resource/Customer/${encodeURIComponent(customer)}`, { method: 'GET', credentials: 'include' });
+    const data = await handleResponse(res);
+    return (data.data || data.message || {}).default_price_list || null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+export async function listItems(search?: string, customer?: string, opts: { hideUnavailable?: boolean } = {}): Promise<Item[]> {
   const filters = [['is_sales_item', '=', 1], ['disabled', '=', 0]];
   const or_filters = search
     ? [
@@ -374,7 +385,12 @@ export async function listItems(search?: string, customer?: string): Promise<Ite
   // actually saw their special prices in the catalog.
   const session = await getSession().catch(() => null);
   const globalPriceList = (await getSellingPriceList()) || DEFAULT_SELLING_PRICE_LIST;
-  const priceList = session?.driver_config?.selling_price_list || globalPriceList;
+  let priceList = session?.driver_config?.selling_price_list || globalPriceList;
+  // Van Profile.use_customer_price_list: the customer's own default list wins. The server
+  // prices the order the same way (_resolve_price_list in sales.py).
+  if (customer && session?.driver_config?.use_customer_price_list) {
+    priceList = (await getCustomerPriceList(customer)) || priceList;
+  }
   const defaultWarehouse = await getDefaultWarehouse();
   if (!items.length) {
     return items;
@@ -466,18 +482,21 @@ export async function listItems(search?: string, customer?: string): Promise<Ite
       ]);
     }
 
-    // If default warehouse had no stock rows, fall back to all warehouses
+    // If default warehouse had no stock rows, fall back to all warehouses — unless the
+    // profile hides items not in the van, where only the van's own stock may count.
     const hasAnyStock = codes.some((c) => stockMap[c] !== undefined);
-    if (!hasAnyStock) {
+    if (!hasAnyStock && !opts.hideUnavailable) {
       await fetchBins([['item_code', 'in', codes]]);
     }
 
-    return items.map((item) => ({
+    const priced = items.map((item) => ({
       ...item,
       price_list_rate: priceMap[item.item_code],
       actual_qty: stockMap[item.item_code] ?? null,
       standard_rate: priceMap[item.item_code] ?? item.standard_rate,
     }));
+    // Van Profile.hide_unavailable_items (the catalog only; returns list everything).
+    return opts.hideUnavailable ? priced.filter((item) => (item.actual_qty ?? 0) > 0) : priced;
   } catch (_e) {
     return items;
   }

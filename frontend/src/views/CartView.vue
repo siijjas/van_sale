@@ -60,7 +60,7 @@
           </div>
           <div v-if="allowDiscountChange" class="space-y-2">
             <div class="flex items-center justify-between gap-3">
-              <span class="text-sm font-medium text-muted">Discount</span>
+              <span class="text-sm font-medium text-muted">Discount<span v-if="maxDiscountPercent" class="ml-1 text-xs text-subtle">· up to {{ maxDiscountPercent }}%</span></span>
               <SegmentedControl
                 :model-value="discountMode"
                 :options="[{ value: 'percent', label: '%' }, { value: 'amount', label: currency }]"
@@ -75,7 +75,7 @@
                 type="number"
                 inputmode="decimal"
                 min="0"
-                max="100"
+                :max="maxDiscountPercent || 100"
                 step="0.01"
                 placeholder="0"
                 class="tnum w-24 rounded-xl border border-line bg-card-muted px-3 py-1.5 text-right text-sm font-semibold text-foreground focus:outline-none"
@@ -159,6 +159,8 @@ const currency = computed(() => store.currencyDisplay);
 // on an actual driver's own profile restricts it.
 const allowRateChange = computed(() => store.isManager || store.driverConfig?.allow_rate_change !== false);
 const allowDiscountChange = computed(() => store.isManager || store.driverConfig?.allow_discount_change !== false);
+// Van Profile.max_discount_percent (0 = no cap). The server rejects anything above it.
+const maxDiscountPercent = computed(() => (store.isManager ? 0 : Number(store.driverConfig?.max_discount_percent) || 0));
 const tax = computed(() => {
   const t = orderDetail.value?.total_taxes_and_charges;
   return t && t > 0 ? t : 0;
@@ -171,11 +173,19 @@ const discountAmountInput = ref(0);
 // quoted to the customer differs from the order that gets saved whenever tax applies.
 const applyDiscountOnGrandTotal = computed(() => (store.driverConfig?.apply_discount_on || 'Grand Total') === 'Grand Total');
 const discountBase = computed(() => (applyDiscountOnGrandTotal.value ? net.value + tax.value : net.value));
+const effectiveDiscountPercent = computed(() => {
+  const pct = Math.min(Math.max(discountPercent.value || 0, 0), 100);
+  return maxDiscountPercent.value > 0 ? Math.min(pct, maxDiscountPercent.value) : pct;
+});
 const discountAmount = computed(() => {
   // A flat amount is clamped to net, matching the server's clamp in _apply_order_payload;
-  // only the percentage base follows apply_discount_on.
-  if (discountMode.value === 'amount') return Math.min(Math.max(discountAmountInput.value || 0, 0), net.value);
-  return (discountBase.value * (discountPercent.value || 0)) / 100;
+  // only the percentage base follows apply_discount_on. The profile cap applies to both
+  // (the server measures a flat amount against the line total before tax).
+  if (discountMode.value === 'amount') {
+    const amt = Math.min(Math.max(discountAmountInput.value || 0, 0), net.value);
+    return maxDiscountPercent.value > 0 ? Math.min(amt, (net.value * maxDiscountPercent.value) / 100) : amt;
+  }
+  return (discountBase.value * effectiveDiscountPercent.value) / 100;
 });
 const grand = computed(() => Math.max(0, net.value + tax.value - discountAmount.value));
 const submitting = ref(false);
@@ -239,7 +249,7 @@ const submit = async () => {
     }));
     const discountArgs = allowDiscountChange.value
       ? discountMode.value === 'percent'
-        ? { discountPercent: discountPercent.value || 0 }
+        ? { discountPercent: effectiveDiscountPercent.value }
         // discountAmount (clamped to the subtotal), not the raw input — typing 500
         // against a 100 subtotal must not send 500 to the server.
         : { discountAmount: discountAmount.value || 0 }

@@ -108,6 +108,31 @@ def _check_can_close(opening_doc):
 		frappe.throw("You can only close your own shift.", frappe.PermissionError)
 	if opening_doc.docstatus != 1 or opening_doc.status != "Open":
 		frappe.throw("This shift is already closed.")
+	if _closing_by_driver(opening_doc) and not _profile_closing_rules(opening_doc.van_profile)["allow_driver_close_shift"]:
+		frappe.throw(
+			"Your profile only lets a manager close your shift. Ask a manager to close it for you.",
+			frappe.PermissionError,
+		)
+
+
+def _closing_by_driver(opening_doc) -> bool:
+	"""True when the shift's own driver (not a manager) is doing the closing."""
+	user = frappe.session.user
+	return opening_doc.driver == user and user != "Administrator" and not _is_manager()
+
+
+def _profile_closing_rules(van_profile: str | None) -> dict:
+	"""The Van Profile switches that shape closing: blind count and who may close."""
+	rules = {"allow_driver_close_shift": True, "hide_expected_amount": False}
+	if not van_profile:
+		return rules
+	row = frappe.db.get_value(
+		"Van Profile", van_profile, ["allow_driver_close_shift", "hide_expected_amount"], as_dict=True
+	)
+	if row:
+		rules["allow_driver_close_shift"] = bool(frappe.utils.cint(row.allow_driver_close_shift))
+		rules["hide_expected_amount"] = bool(frappe.utils.cint(row.hide_expected_amount))
+	return rules
 
 
 def require_open_shift(action: str, user: str | None = None):
@@ -552,11 +577,20 @@ def get_shift_closing_summary(opening_shift: str | None = None):
 	opening = _serialize_opening(opening_doc)
 	computed = _compute_closing(opening)
 
+	# Blind count (Van Profile.hide_expected_amount): the driver gets no expected figures
+	# and counts from zero. A manager closing the shift still sees everything.
+	blind = _closing_by_driver(opening_doc) and _profile_closing_rules(opening_doc.van_profile)["hide_expected_amount"]
 	for row in computed["rows"]:
-		row["closing_amount"] = row["expected_amount"]
-		row["difference"] = 0.0
+		if blind:
+			row["expected_amount"] = None
+			row["closing_amount"] = 0.0
+			row["difference"] = None
+		else:
+			row["closing_amount"] = row["expected_amount"]
+			row["difference"] = 0.0
 
 	return {
+		"blind": blind,
 		"opening_shift": name,
 		"driver": opening_doc.driver,
 		"driver_name": frappe.utils.get_fullname(opening_doc.driver),
@@ -574,7 +608,7 @@ def get_shift_closing_summary(opening_shift: str | None = None):
 		"total_expenses": computed["total_expenses"],
 		"total_deposits": computed["total_deposits"],
 		"total_opening_float": computed["total_opening_float"],
-		"expected_cash": computed["expected_cash"],
+		"expected_cash": None if blind else computed["expected_cash"],
 		"variance_tolerance": _variance_tolerance(opening_doc.van_profile),
 		"draft_orders": computed["draft_orders"],
 		"outside_window": computed["outside_window"],

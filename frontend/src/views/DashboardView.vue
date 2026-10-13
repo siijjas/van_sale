@@ -182,12 +182,15 @@ const actions = computed(() => {
   if (caps.value.uses_shifts) {
     list.push({ label: 'Cash Out', icon: 'banknote', accent: 'bg-info/12 text-info', go: gated(() => router.push({ name: 'expenses' })) });
     if (activeShift.value) {
-      list.push({ label: 'Close Shift', icon: 'check-circle', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'shift-close' }) });
+      // Van Profile.allow_driver_close_shift off: only a manager closes this shift.
+      if (caps.value.can_close_shift) {
+        list.push({ label: 'Close Shift', icon: 'check-circle', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'shift-close' }) });
+      }
     } else {
       list.push({ label: 'Open Shift', icon: 'play-circle', accent: 'bg-success/12 text-success', go: () => router.push({ name: 'shift-open' }) });
     }
     list.push({ label: 'Shift Reports', icon: 'activity', accent: 'bg-info/12 text-info', go: () => router.push({ name: 'shift-reports' }) });
-  } else {
+  } else if (caps.value.shows_customer_balance) {
     list.push({ label: 'Ledger', icon: 'ledger', accent: 'bg-info/12 text-info', go: () => router.push({ name: 'customers', query: { redirect: 'ledger' } }) });
   }
   if (store.isManager) {

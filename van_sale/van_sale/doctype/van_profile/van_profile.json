@@ -28,14 +28,23 @@
   "default_cash_mode",
   "section_controls",
   "daily_credit_limit",
+  "allow_credit_sale",
+  "show_customer_balance",
+  "allow_create_customer",
+  "allow_duplicate_customer_names",
   "low_stock_threshold",
   "column_break_controls",
   "allow_rate_change",
   "allow_discount_change",
   "allow_sale_without_stock",
+  "hide_unavailable_items",
+  "allow_return",
+  "return_validity_days",
   "use_shifts",
   "require_open_shift",
   "variance_tolerance",
+  "hide_expected_amount",
+  "allow_driver_close_shift",
   "validate_stock_on_save",
   "allow_offline_stock_dashboard",
   "section_cash_movement",
@@ -46,10 +55,14 @@
   "back_office_cash_account",
   "cash_movement_max_amount",
   "require_cash_movement_remarks",
+  "allow_cancel_cash_movement",
   "allowed_expense_accounts",
   "section_pricing",
   "taxes_and_charges",
   "apply_discount_on",
+  "max_discount_percent",
+  "use_customer_price_list",
+  "allow_zero_rated_items",
   "column_break_pricing",
   "ignore_pricing_rule",
   "disable_rounded_total",
@@ -205,6 +218,35 @@
    "label": "Daily Credit Limit"
   },
   {
+   "fieldname": "allow_credit_sale",
+   "fieldtype": "Check",
+   "label": "Allow Credit Sales",
+   "default": "1",
+   "depends_on": "eval:doc.profile_type != \"Field Sales\"",
+   "description": "Off: every invoice must be paid in full when it is raised. Collections against older invoices are still allowed."
+  },
+  {
+   "fieldname": "show_customer_balance",
+   "fieldtype": "Check",
+   "label": "Show Customer Balance",
+   "default": "1",
+   "description": "Show the customer's outstanding balance and ledger to staff."
+  },
+  {
+   "fieldname": "allow_create_customer",
+   "fieldtype": "Check",
+   "label": "Allow Creating Customers",
+   "default": "1"
+  },
+  {
+   "fieldname": "allow_duplicate_customer_names",
+   "fieldtype": "Check",
+   "label": "Allow Duplicate Customer Names",
+   "default": "0",
+   "depends_on": "eval:doc.allow_create_customer",
+   "description": "Off: a new customer is refused when one with the same name already exists."
+  },
+  {
    "default": "5",
    "fieldname": "low_stock_threshold",
    "fieldtype": "Float",
@@ -236,6 +278,28 @@
    "depends_on": "eval:doc.profile_type != \"Field Sales\""
   },
   {
+   "fieldname": "hide_unavailable_items",
+   "fieldtype": "Check",
+   "label": "Hide Items Not In Stock",
+   "default": "0",
+   "depends_on": "eval:doc.profile_type != \"Field Sales\"",
+   "description": "Catalog only lists items with stock in the van warehouse."
+  },
+  {
+   "fieldname": "allow_return",
+   "fieldtype": "Check",
+   "label": "Allow Returns",
+   "default": "1",
+   "depends_on": "eval:doc.profile_type != \"Field Sales\""
+  },
+  {
+   "fieldname": "return_validity_days",
+   "fieldtype": "Int",
+   "label": "Return Validity (Days)",
+   "depends_on": "eval:doc.allow_return && doc.profile_type != \"Field Sales\"",
+   "description": "Items can only be returned if this customer bought them within this many days. 0 = no limit."
+  },
+  {
    "default": "1",
    "description": "Staff open a shift (cash float) and close it with a cash reconciliation. Turn off for staff who only take orders.",
    "fieldname": "use_shifts",
@@ -256,6 +320,22 @@
    "label": "Variance Tolerance",
    "depends_on": "eval:doc.use_shifts",
    "description": "A closing whose counted cash differs from expected by more than this is flagged Exceeds Tolerance on the closing and the manager dashboard. 0 flags any difference. Never blocks closing."
+  },
+  {
+   "fieldname": "hide_expected_amount",
+   "fieldtype": "Check",
+   "label": "Blind Cash Count",
+   "default": "0",
+   "depends_on": "eval:doc.use_shifts",
+   "description": "Hide the expected amounts on the closing screen so staff count the drawer without knowing the target. Managers closing a shift still see them."
+  },
+  {
+   "fieldname": "allow_driver_close_shift",
+   "fieldtype": "Check",
+   "label": "Staff Can Close Their Own Shift",
+   "default": "1",
+   "depends_on": "eval:doc.use_shifts",
+   "description": "Off: only a manager can close this profile's shifts."
   },
   {
    "default": "0",
@@ -323,6 +403,13 @@
    "label": "Require Remarks"
   },
   {
+   "fieldname": "allow_cancel_cash_movement",
+   "fieldtype": "Check",
+   "label": "Staff Can Cancel Own Cash Movements",
+   "default": "0",
+   "description": "While the shift is still open. Managers can always cancel."
+  },
+  {
    "depends_on": "eval:doc.allow_expense",
    "description": "Leave empty to allow every expense account of the company.",
    "fieldname": "allowed_expense_accounts",
@@ -347,6 +434,27 @@
    "fieldtype": "Select",
    "label": "Apply Discount On",
    "options": "Grand Total\nNet Total"
+  },
+  {
+   "fieldname": "max_discount_percent",
+   "fieldtype": "Percent",
+   "label": "Max Discount %",
+   "depends_on": "eval:doc.allow_discount_change",
+   "description": "Largest order discount staff may give, as a percentage of the line total. 0 = no cap."
+  },
+  {
+   "fieldname": "use_customer_price_list",
+   "fieldtype": "Check",
+   "label": "Use Customer's Price List",
+   "default": "0",
+   "description": "When the customer has a default price list, price the catalog and orders from it instead of the profile's price list."
+  },
+  {
+   "fieldname": "allow_zero_rated_items",
+   "fieldtype": "Check",
+   "label": "Allow Zero Rated Items",
+   "default": "0",
+   "description": "Off: an order line with a rate of 0 is refused."
   },
   {
    "fieldname": "column_break_pricing",

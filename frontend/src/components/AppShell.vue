@@ -116,7 +116,7 @@ const navItems = computed<NavItem[]>(() => {
       to: { name: 'stock-dashboard' },
       icon: 'boxes',
     });
-  } else if (!store.isManager) {
+  } else if (!store.isManager && store.capabilities.shows_customer_balance) {
     items.push({ name: 'ledger', names: ['ledger'], label: 'Ledger', to: { name: 'ledger' }, icon: 'ledger' });
   }
 
