@@ -3,7 +3,7 @@ import frappe
 from van_sale.van_sale.utils import (
 	_manager_only, _coerce_list, _to_float, _coerce_check, _default_company,
 	_get_driver_config, _driver_cache_key,
-	_driver_stock_cache_key, _is_manager, _is_driver
+	_driver_stock_cache_key, _is_manager, _is_driver, _capabilities
 )
 
 @frappe.whitelist()
@@ -62,4 +62,5 @@ def get_app_context():
 		"is_manager": _is_manager(user),
 		"is_driver": _is_driver(user),
 		"driver_config": config,
+		"capabilities": _capabilities(config),
 	}

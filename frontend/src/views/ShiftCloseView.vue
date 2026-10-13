@@ -1,5 +1,5 @@
 <template>
-  <WorkspacePage back eyebrow="Close shift" title="End of day" description="Count each payment mode and reconcile against what's expected, then close your shift." width="default">
+  <WorkspacePage back eyebrow="Close shift" title="End of day" description="Count each payment mode and reconcile against what's expected (opening float + collections − expenses − deposits), then close your shift." width="default">
     <SkeletonList v-if="loading" :rows="3" height="7rem" />
 
     <div v-else-if="summary" class="space-y-5 pb-28">
@@ -11,12 +11,33 @@
           ? 'This shift was never closed. It closes as that day: the figures below are that day\'s sales, collections and expenses. Count the cash that belongs to it.'
           : 'You are closing this shift on the driver\'s behalf. The closing records that you closed it.'"
       />
+      <AppAlert
+        v-if="summary.draft_orders.length"
+        tone="warning"
+        :title="`${summary.draft_orders.length} draft order${summary.draft_orders.length === 1 ? '' : 's'} not submitted`"
+      >
+        Drafts are not counted in this closing. Submit or discard them first, or close anyway and the closing will note them.
+        <ul class="mt-2 space-y-1">
+          <li v-for="d in summary.draft_orders" :key="d.name">
+            <button type="button" class="font-semibold underline underline-offset-2" @click="router.push({ name: 'order-detail', params: { name: d.name } })">{{ d.name }}</button>
+            <span class="opacity-90"> · {{ d.customer_name || d.customer }} · {{ currency }} {{ fmt(d.grand_total) }}</span>
+          </li>
+        </ul>
+      </AppAlert>
+      <AppAlert
+        v-if="outsideCount"
+        tone="info"
+        title="Activity before this shift opened"
+        :message="`${outsideText} on ${shiftDay(summary.shift_date)} before the shift opened and on no other closing. They are not in this closing's totals.`"
+      />
+
       <div class="grid grid-cols-2 gap-3">
-        <KpiTile label="Total sales" :value="`${currency} ${fmt(summary.total_sales)}`" icon="cart" tone="primary" />
+        <KpiTile label="Total sales" :value="`${currency} ${fmt(summary.total_sales)}`" :sub="`${qty(summary.total_quantity)} units · tax ${currency} ${fmt(summary.total_taxes)}`" icon="cart" tone="primary" />
         <KpiTile label="Collections" :value="`${currency} ${fmt(summary.total_collections)}`" icon="wallet" tone="success" />
         <KpiTile label="Opening float" :value="`${currency} ${fmt(summary.total_opening_float)}`" icon="briefcase" tone="info" />
         <KpiTile label="Expected cash" :value="`${currency} ${fmt(summary.expected_cash)}`" icon="banknote" tone="primary" />
-        <KpiTile v-if="summary.total_expenses > 0" class="col-span-2" label="Route expenses" :value="`${currency} ${fmt(summary.total_expenses)}`" icon="file-text" tone="warning" />
+        <KpiTile v-if="summary.total_expenses > 0" :class="summary.total_deposits > 0 ? '' : 'col-span-2'" label="Expenses paid" :value="`${currency} ${fmt(summary.total_expenses)}`" icon="file-text" tone="warning" />
+        <KpiTile v-if="summary.total_deposits > 0" :class="summary.total_expenses > 0 ? '' : 'col-span-2'" label="Deposited to office" :value="`${currency} ${fmt(summary.total_deposits)}`" icon="banknote" tone="info" />
       </div>
 
       <AppCard padding="lg" class="space-y-4">
@@ -50,11 +71,19 @@
         <div
           v-if="netDifference !== 0"
           class="flex items-center justify-between rounded-2xl border px-4 py-3"
-          :class="netDifference > 0 ? 'border-success/25 bg-success/10 text-success' : 'border-danger/25 bg-danger/10 text-danger'"
+          :class="varianceStatus === 'Within Tolerance'
+            ? 'border-warning/25 bg-warning/10 text-warning'
+            : netDifference > 0 ? 'border-success/25 bg-success/10 text-success' : 'border-danger/25 bg-danger/10 text-danger'"
         >
           <div>
-            <p class="text-sm font-semibold">Net variance</p>
-            <p class="text-xs opacity-90">{{ netDifference > 0 ? 'More than expected.' : 'Less than expected.' }}</p>
+            <p class="text-sm font-semibold">Net variance · {{ varianceStatus }}</p>
+            <p class="text-xs opacity-90">
+              {{ netDifference > 0 ? 'More than expected.' : 'Less than expected.' }}
+              <template v-if="summary.variance_tolerance">
+                {{ varianceStatus === 'Within Tolerance' ? 'Within' : 'Beyond' }} the {{ currency }} {{ fmt(summary.variance_tolerance) }} tolerance.
+              </template>
+              <template v-else>Your manager will see this flagged.</template>
+            </p>
           </div>
           <span class="tnum text-lg font-bold">{{ netDifference > 0 ? '+' : '' }}{{ currency }} {{ netDifference.toFixed(2) }}</span>
         </div>
@@ -83,7 +112,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api/frappe';
 import { useSessionStore } from '../stores/session';
-import type { ShiftClosingSummary, PaymentReconciliationRow } from '../types';
+import type { ShiftClosingSummary, PaymentReconciliationRow, VarianceStatus } from '../types';
 import WorkspacePage from '../components/WorkspacePage.vue';
 import { AppCard, AppButton, AppAlert, KpiTile, FormField, BaseInput, BaseTextarea, SkeletonList, StickyBar } from '../components/ui';
 
@@ -101,8 +130,26 @@ const rows = ref<PaymentReconciliationRow[]>([]);
 const notes = ref('');
 
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qty = (n?: number) => (n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const diff = (row: PaymentReconciliationRow) => (Number(row.closing_amount) || 0) - row.expected_amount;
 const netDifference = computed(() => rows.value.reduce((sum, r) => sum + diff(r), 0));
+// Mirrors shift closing's variance_status (flag only; closing is never blocked).
+const varianceStatus = computed<VarianceStatus>(() => {
+  const d = Math.abs(netDifference.value);
+  if (d < 0.005) return 'Balanced';
+  return d <= (summary.value?.variance_tolerance || 0) + 0.005 ? 'Within Tolerance' : 'Exceeds Tolerance';
+});
+const outsideCount = computed(() => {
+  const o = summary.value?.outside_window;
+  return o ? o.orders_count + o.payments_count : 0;
+});
+const outsideText = computed(() => {
+  const o = summary.value!.outside_window;
+  const parts: string[] = [];
+  if (o.orders_count) parts.push(`${o.orders_count} order${o.orders_count === 1 ? '' : 's'} (${currency.value} ${fmt(o.orders_total)})`);
+  if (o.payments_count) parts.push(`${o.payments_count} payment${o.payments_count === 1 ? '' : 's'} (${currency.value} ${fmt(o.payments_total)})`);
+  return parts.join(' and ') + (o.orders_count + o.payments_count === 1 ? ' was made' : ' were made');
+});
 const isOwnShift = computed(() => !summary.value || summary.value.driver === store.session?.user);
 const shiftDay = (s: string) =>
   new Date(`${s}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });

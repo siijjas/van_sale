@@ -50,6 +50,7 @@
 		<tr><td>Shift date</td><td>{{ frappe.format_date(r.shift.shift_date) }}</td></tr>
 		<tr><td>Opened</td><td>{{ frappe.format(r.shift.period_start, {"fieldtype": "Datetime"}) if r.shift.period_start else "" }}</td></tr>
 		{%- if r.shift.period_end %}<tr><td>Closed</td><td>{{ frappe.format(r.shift.period_end, {"fieldtype": "Datetime"}) }}</td></tr>{% endif %}
+		{%- if r.shift.closed_by %}<tr><td>Closed by</td><td>{{ frappe.utils.get_fullname(r.shift.closed_by) }}</td></tr>{% endif %}
 		<tr><td>Opening shift</td><td>{{ r.shift.opening_shift }}</td></tr>
 		{%- if r.shift.closing_shift %}<tr><td>Closing shift</td><td>{{ r.shift.closing_shift }}</td></tr>{% endif %}
 		<tr><td>Printed</td><td>{{ frappe.format(r.generated_at, {"fieldtype": "Datetime"}) }}</td></tr>
@@ -59,10 +60,23 @@
 	<table>
 		<tr><th>Summary</th><th class="num">Count</th><th class="num">Amount</th></tr>
 		<tr><td>Sales orders</td><td class="num">{{ t.sales_orders_count }}</td><td class="num">{{ money(t.total_sales) }}</td></tr>
+		<tr><td>&nbsp;&nbsp;Net (before tax)</td><td class="num">{{ qty(t.total_quantity) }} units</td><td class="num">{{ money(t.net_total) }}</td></tr>
+		<tr><td>&nbsp;&nbsp;Taxes</td><td></td><td class="num">{{ money(t.total_taxes) }}</td></tr>
 		<tr><td>Sales invoices</td><td class="num">{{ t.invoices_count }}</td><td class="num">{{ money(t.invoiced_total) }}</td></tr>
 		<tr><td>Returns (credit notes)</td><td class="num">{{ t.returns_count }}</td><td class="num">{{ "-" if t.returns_total else "" }}{{ money(t.returns_total) }}</td></tr>
 		<tr class="total"><td>Net invoiced</td><td></td><td class="num">{{ money(t.net_invoiced) }}</td></tr>
 	</table>
+
+	{%- if r.taxes %}
+	<h3>Taxes</h3>
+	<table>
+		<tr><th>Account</th><th class="num">Rate</th><th class="num">Amount</th></tr>
+		{%- for x in r.taxes %}
+		<tr><td>{{ x.account_head }}</td><td class="num">{{ qty(x.rate) }}%</td><td class="num">{{ money(x.amount) }}</td></tr>
+		{%- endfor %}
+		<tr class="total"><td colspan="2">Total</td><td class="num">{{ money(t.total_taxes) }}</td></tr>
+	</table>
+	{%- endif %}
 
 	<h3>Collections by mode</h3>
 	{%- if r.collections %}
@@ -85,6 +99,17 @@
 		<tr class="total"><td colspan="2">Total</td><td class="num">{{ money(t.total_expenses) }}</td></tr>
 	</table>
 	{%- else %}<p>No expenses.</p>{% endif %}
+
+	{%- if r.deposits %}
+	<h3>Cash deposited to office</h3>
+	<table>
+		<tr><th>Account</th><th>Notes</th><th class="num">Amount</th></tr>
+		{%- for d in r.deposits %}
+		<tr><td>{{ d.expense_type | e }}</td><td>{{ (d.notes or "") | e }}</td><td class="num">{{ money(d.amount) }}</td></tr>
+		{%- endfor %}
+		<tr class="total"><td colspan="2">Total</td><td class="num">{{ money(t.total_deposits) }}</td></tr>
+	</table>
+	{%- endif %}
 
 	<h3>Cash reconciliation</h3>
 	<table>
@@ -113,7 +138,15 @@
 			{%- endif %}
 		</tr>
 	</table>
-	<div class="vs-banner">Expected cash in hand: <b>{{ money(t.expected_cash) }}</b> (opening float + cash collected &minus; expenses)</div>
+	<div class="vs-banner">Expected cash in hand: <b>{{ money(t.expected_cash) }}</b> (opening float + cash collected &minus; expenses &minus; deposits)
+		{%- if r.report_type == "closing" and t.variance_status %}
+		<br>Variance: <b>{{ t.variance_status }}</b>{% if t.variance_tolerance %} (tolerance {{ money(t.variance_tolerance) }}){% endif %}
+		{%- endif %}
+	</div>
+	{%- if t.draft_orders_count %}
+	<p><small>{{ t.draft_orders_count }} draft order{{ "s" if t.draft_orders_count != 1 else "" }} made during this shift
+		{{ "were" if t.draft_orders_count != 1 else "was" }} not submitted and {{ "are" if t.draft_orders_count != 1 else "is" }} not in these totals.</small></p>
+	{%- endif %}
 
 	<h3>Items</h3>
 	{%- if r.items %}

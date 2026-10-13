@@ -6,7 +6,7 @@ Run with: bench run-tests --site <site> --module van_sale.van_sale.tests.test_sh
 import frappe
 from frappe.utils import flt, now_datetime, nowdate
 
-from van_sale.van_sale.finance import submit_route_expense
+from van_sale.van_sale.cash_movement import create_cash_movement
 from van_sale.van_sale.sales import create_sales_order, submit_sales_order
 from van_sale.van_sale.shift import close_shift, open_shift
 from van_sale.van_sale.shift_report import get_closing_report, get_shift_closings, get_shift_summary
@@ -32,7 +32,7 @@ class TestShiftReports(base.TestShiftAndAccessRegressions):
 
 		so = create_sales_order(self.customer_allowed, [{"item_code": self.item_code, "qty": 2, "rate": 50}])["name"]
 		submit_sales_order(so)
-		submit_route_expense("Fuel", 10, "Test fill-up")
+		create_cash_movement("Expense", 10, remarks="Test fill-up")
 
 		closings_before = frappe.db.count("Van Shift Closing")
 		after = get_shift_summary()

@@ -145,8 +145,9 @@ const currency = computed(() => store.currencyDisplay);
 const cartCount = computed(() => store.cartCount);
 const total = computed(() => store.cartTotal.toFixed(2));
 // Van Profile override: out-of-stock items can still be ordered; create_sales_invoice()
-// then bills them without moving stock and delivers only what the van holds.
-const allowWithoutStock = computed(() => !!store.driverConfig?.allow_sale_without_stock);
+// then bills them without moving stock and delivers only what the van holds. Field Sales
+// staff never sell from a warehouse, so for them the qty shown is information only.
+const allowWithoutStock = computed(() => store.canOrderWithoutStock);
 
 const sheetOpen = ref(false);
 const selectedItem = ref<Item | null>(null);

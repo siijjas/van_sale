@@ -62,6 +62,12 @@
               class="mt-1.5 block font-semibold underline underline-offset-2"
               @click="closeShift(a.reference)"
             >Close {{ a.reference }}</button>
+            <button
+              v-else-if="(a.kind === 'variance' || a.kind === 'draft_orders') && a.reference"
+              type="button"
+              class="mt-1.5 block font-semibold underline underline-offset-2"
+              @click="router.push({ name: 'closing-report', params: { name: a.reference } })"
+            >Open closing report</button>
           </AppAlert>
         </div>
         <button v-if="data.alerts.length > ALERT_LIMIT" class="mt-2 text-xs font-semibold text-primary" @click="showAllAlerts = !showAllAlerts">
@@ -100,8 +106,8 @@
                   <p class="tnum font-semibold text-foreground">{{ fmt(v.expected_cash) }}</p>
                 </template>
                 <template v-else-if="v.shift_status === 'closed'">
-                  <p class="opacity-60">Variance</p>
-                  <p class="tnum font-semibold" :class="varianceText(v.net_difference)">{{ signed(v.net_difference) }}</p>
+                  <p class="opacity-60">{{ v.variance_status === 'Within Tolerance' ? 'Within tolerance' : 'Variance' }}</p>
+                  <p class="tnum font-semibold" :class="varianceText(v.net_difference, v.variance_status)">{{ signed(v.net_difference) }}</p>
                 </template>
                 <template v-else>
                   <p class="opacity-60">Expenses</p>
@@ -157,7 +163,8 @@ const visibleAlerts = computed(() => (showAllAlerts.value ? data.value!.alerts :
 
 const fmt = (n?: number | null) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const signed = (n: number | null) => (n ? `${n > 0 ? '+' : '−'}${fmt(Math.abs(n))}` : '0.00');
-const varianceText = (n: number | null) => (!n ? 'text-foreground' : n > 0 ? 'text-success' : 'text-danger');
+const varianceText = (n: number | null, status?: string | null) =>
+  !n ? 'text-foreground' : status === 'Within Tolerance' ? 'text-warning' : n > 0 ? 'text-success' : 'text-danger';
 const time = (ts: string | null) => {
   const d = ts ? new Date(ts.replace(' ', 'T')) : null;
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
@@ -165,7 +172,8 @@ const time = (ts: string | null) => {
 const statusLabel = (v: ManagerDashboardVan) => {
   const at = time(v.shift_since);
   if (v.shift_status === 'open' && at) return `Open since ${at}`;
-  if (v.shift_status === 'closed' && at) return `Closed ${at}`;
+  if (v.shift_status === 'closed' && at) return `Closed ${at}${v.draft_orders_count ? ` · ${v.draft_orders_count} draft${v.draft_orders_count === 1 ? '' : 's'}` : ''}`;
+  if (v.shift_status === 'none' && v.uses_shifts === false) return 'No shifts';
   return STATUS[v.shift_status].label;
 };
 

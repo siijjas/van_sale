@@ -17,7 +17,8 @@ get_shift_report_for_print() through the jinja hook.
 import frappe
 from frappe.utils import cint, flt, now_datetime
 
-from van_sale.van_sale.shift import _compute_closing, _find_open_shift, _serialize_opening
+from van_sale.van_sale.doctype.van_shift_closing.van_shift_closing import variance_status
+from van_sale.van_sale.shift import _compute_closing, _find_open_shift, _serialize_opening, _variance_tolerance
 from van_sale.van_sale.utils import _is_manager, _require_van_user
 
 
@@ -36,8 +37,9 @@ def _amounts(transactions: list[dict], doctype: str) -> dict[str, float]:
 	return {t["reference_name"]: flt(t["amount"]) for t in transactions if t["reference_doctype"] == doctype}
 
 
-# How _compute_closing() selects each doctype for a driver's day: (date field, owner
-# field, extra filters, amount field).
+# How closings made before `transactions` existed selected each doctype for a driver's
+# day: (date field, owner field, extra filters, amount field). Current closings use the
+# shift window instead (shift._compute_closing); this only rebuilds old ones.
 _LEGACY_SOURCES = {
 	"Sales Order": ("transaction_date", "owner", {"docstatus": 1}, "grand_total"),
 	"Sales Invoice": ("posting_date", "owner", {"docstatus": 1}, "grand_total"),
@@ -108,17 +110,28 @@ def _item_rows(sales_orders: list[str], returns: list[str]) -> list[dict]:
 	return rows
 
 
-def _build_report(report_type: str, header: dict, totals: dict, reconciliation: list[dict], transactions: list[dict]) -> dict:
+def _build_report(
+	report_type: str,
+	header: dict,
+	totals: dict,
+	reconciliation: list[dict],
+	transactions: list[dict],
+	taxes: list[dict] | None = None,
+	draft_orders: list[dict] | None = None,
+) -> dict:
 	"""Assemble the report shape the summary and closing report share, from a shift's
 	transaction references.
 
 	`transactions` is the reference list shift._compute_closing() produces (and a
 	closing stores). Amounts are taken from it rather than re-read, so a closing report
-	shows what the shift actually closed on.
+	shows what the shift actually closed on. `taxes` is the per-account tax breakdown
+	of the shift's orders; `draft_orders` the unsubmitted orders still hanging (only
+	meaningful on a summary, where they can still be submitted).
 	"""
 	order_names = _names(transactions, "Sales Order")
 	payment_amounts = _amounts(transactions, "Payment Entry")
 	expense_amounts = _amounts(transactions, "Van Expense Log")
+	movement_amounts = _amounts(transactions, "Van Cash Movement")
 	invoice_amounts = _amounts(transactions, "Sales Invoice")
 
 	# Invoices vs credit notes.
@@ -149,7 +162,10 @@ def _build_report(report_type: str, header: dict, totals: dict, reconciliation: 
 			row["count"] += 1
 			row["amount"] += payment_amounts[pe.name]
 
+	# Expenses: legacy logs (type + notes, no accounting) and cash movements of type
+	# Expense (account + remarks, posted to a Journal Entry). Deposits are listed apart.
 	expenses = []
+	deposits = []
 	if expense_amounts:
 		expenses = [
 			{
@@ -157,6 +173,7 @@ def _build_report(report_type: str, header: dict, totals: dict, reconciliation: 
 				"expense_type": e.expense_type,
 				"notes": e.notes,
 				"amount": expense_amounts[e.name],
+				"journal_entry": None,
 			}
 			for e in frappe.get_all(
 				"Van Expense Log",
@@ -165,6 +182,21 @@ def _build_report(report_type: str, header: dict, totals: dict, reconciliation: 
 				order_by="creation asc",
 			)
 		]
+	if movement_amounts:
+		for m in frappe.get_all(
+			"Van Cash Movement",
+			filters={"name": ["in", list(movement_amounts)]},
+			fields=["name", "movement_type", "expense_account", "target_account", "against_name", "remarks", "journal_entry"],
+			order_by="creation asc",
+		):
+			row = {
+				"name": m.name,
+				"expense_type": frappe.get_cached_value("Account", m.target_account, "account_name") or m.target_account,
+				"notes": " · ".join(x for x in (m.against_name, m.remarks) if x) or None,
+				"amount": movement_amounts[m.name],
+				"journal_entry": m.journal_entry,
+			}
+			(expenses if m.movement_type == "Expense" else deposits).append(row)
 
 	return {
 		"report_type": report_type,
@@ -179,12 +211,17 @@ def _build_report(report_type: str, header: dict, totals: dict, reconciliation: 
 			"returns_total": returns_total,
 			"net_invoiced": invoiced_total - returns_total,
 			"payments_count": len(payment_amounts),
-			"expenses_count": len(expense_amounts),
+			"expenses_count": len(expenses),
+			"deposits_count": len(deposits),
+			"total_deposits": flt(totals.get("total_deposits")) or sum(d["amount"] for d in deposits),
 		},
 		"payment_reconciliation": reconciliation,
 		"collections": list(collections.values()),
+		"taxes": taxes or [],
 		"expenses": expenses,
+		"deposits": deposits,
 		"items": _item_rows(order_names, returns),
+		"draft_orders": draft_orders or [],
 	}
 
 
@@ -201,6 +238,7 @@ def _header(doc, opening_shift: str, closing_shift: str | None) -> dict:
 		"period_start": str(doc.period_start) if doc.period_start else None,
 		"period_end": str(doc.period_end) if doc.get("period_end") else None,
 		"status": doc.status,
+		"closed_by": doc.get("closed_by"),
 		"notes": doc.notes,
 	}
 
@@ -215,13 +253,24 @@ def build_shift_summary(opening_doc) -> dict:
 	computed = _compute_closing(_serialize_opening(opening_doc))
 	totals = {
 		key: computed[key]
-		for key in ("total_sales", "total_collections", "total_expenses", "total_opening_float", "expected_cash")
+		for key in (
+			"total_sales", "net_total", "total_taxes", "total_quantity", "total_returns",
+			"total_collections", "total_expenses", "total_deposits", "total_opening_float", "expected_cash",
+		)
 	}
+	totals["variance_tolerance"] = _variance_tolerance(opening_doc.van_profile)
+	totals["draft_orders_count"] = len(computed["draft_orders"])
 	reconciliation = [
 		{**row, "closing_amount": None, "difference": None} for row in computed["rows"]
 	]
 	return _build_report(
-		"summary", _header(opening_doc, opening_doc.name, None), totals, reconciliation, computed["transactions"]
+		"summary",
+		_header(opening_doc, opening_doc.name, None),
+		totals,
+		reconciliation,
+		computed["transactions"],
+		taxes=computed["taxes"],
+		draft_orders=computed["draft_orders"],
 	)
 
 
@@ -241,10 +290,19 @@ def build_closing_report(closing_doc) -> dict:
 	totals = {
 		key: flt(closing_doc.get(key))
 		for key in (
-			"total_sales", "total_collections", "total_expenses", "total_opening_float",
-			"expected_cash", "net_difference",
+			"total_sales", "net_total", "total_taxes", "total_quantity", "total_returns",
+			"total_collections", "total_expenses", "total_deposits", "total_opening_float",
+			"expected_cash", "net_difference", "variance_tolerance",
 		)
 	}
+	totals["variance_status"] = closing_doc.get("variance_status") or variance_status(
+		closing_doc.net_difference, closing_doc.get("variance_tolerance")
+	)
+	totals["draft_orders_count"] = cint(closing_doc.get("draft_orders_count"))
+	taxes = [
+		{"account_head": t.account_head, "rate": flt(t.rate), "amount": flt(t.amount)}
+		for t in (closing_doc.get("taxes") or [])
+	]
 	reconciliation = [
 		{
 			"mode_of_payment": r.mode_of_payment,
@@ -256,7 +314,12 @@ def build_closing_report(closing_doc) -> dict:
 		for r in closing_doc.payment_reconciliation
 	]
 	return _build_report(
-		"closing", _header(closing_doc, closing_doc.opening_shift, closing_doc.name), totals, reconciliation, transactions
+		"closing",
+		_header(closing_doc, closing_doc.opening_shift, closing_doc.name),
+		totals,
+		reconciliation,
+		transactions,
+		taxes=taxes,
 	)
 
 
@@ -295,7 +358,7 @@ def get_shift_closings(limit: int = 30):
 		filters=filters,
 		fields=[
 			"name", "opening_shift", "driver", "shift_date", "period_start", "period_end",
-			"total_sales", "total_collections", "net_difference",
+			"total_sales", "total_collections", "net_difference", "variance_status", "closed_by", "draft_orders_count",
 		],
 		order_by="period_end desc, creation desc",
 		limit_page_length=min(max(cint(limit), 1), 100),

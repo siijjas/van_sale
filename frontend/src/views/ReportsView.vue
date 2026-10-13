@@ -127,6 +127,9 @@
             <p class="flex justify-between"><span class="text-muted">Net cash</span><span class="tnum font-semibold text-foreground">{{ fmt(d.net_cash) }}</span></p>
             <p class="flex justify-between"><span class="text-muted">Shifts</span><span class="tnum font-semibold text-foreground">{{ d.shifts_count }}</span></p>
             <p class="flex justify-between"><span class="text-muted">Variance</span><span class="tnum font-semibold" :class="signClass(d.variance)">{{ signed(d.variance) }}</span></p>
+            <p class="flex justify-between"><span class="text-muted">Deposited</span><span class="tnum font-semibold text-foreground">{{ fmt(d.deposits) }}</span></p>
+            <p class="flex justify-between"><span class="text-muted">Flagged shifts</span><span class="tnum font-semibold" :class="d.flagged_shifts ? 'text-danger' : 'text-foreground'">{{ d.flagged_shifts || 0 }}</span></p>
+            <p v-if="d.draft_orders" class="flex justify-between"><span class="text-muted">Drafts left at close</span><span class="tnum font-semibold text-warning">{{ d.draft_orders }}</span></p>
           </div>
         </AppCard>
       </template>
@@ -193,11 +196,12 @@
 
       <!-- ── Cash ─────────────────────────────────────────────── -->
       <template v-else-if="tab === 'cash'">
-        <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
           <KpiTile label="Collections" :value="money(t.collections)" :sub="`${t.payments_count} payments`" icon="wallet" tone="success" />
           <KpiTile label="Expenses" :value="money(t.expenses)" :sub="`${t.expenses_count} entries`" icon="file-text" tone="warning" />
+          <KpiTile label="Deposited to office" :value="money(t.deposits || 0)" :sub="`${t.deposits_count || 0} deposits`" icon="banknote" tone="info" />
           <KpiTile label="Net cash" :value="money(t.net_cash)" sub="Collections − expenses" icon="banknote" tone="info" />
-          <KpiTile label="Cash variance" :value="signedMoney(t.variance)" :sub="`${t.variance_shifts} of ${t.shifts_count} shifts off`" icon="alert" :tone="t.variance < 0 ? 'danger' : 'primary'" />
+          <KpiTile label="Cash variance" :value="signedMoney(t.variance)" :sub="`${t.flagged_shifts ?? t.variance_shifts} of ${t.shifts_count} shifts flagged`" icon="alert" :tone="t.variance < 0 ? 'danger' : 'primary'" />
         </div>
 
         <div class="grid gap-5 md:grid-cols-2">
@@ -248,7 +252,9 @@
             </div>
             <div class="shrink-0 text-right">
               <p class="tnum text-sm font-bold" :class="signClass(s.net_difference)">{{ signed(s.net_difference) }}</p>
-              <p class="text-xs text-muted">{{ Math.abs(s.net_difference) >= 0.005 ? 'variance' : 'balanced' }}</p>
+              <p class="text-xs" :class="s.variance_status === 'Exceeds Tolerance' ? 'font-semibold text-danger' : 'text-muted'">
+                {{ (s.variance_status || (Math.abs(s.net_difference) >= 0.005 ? 'Exceeds Tolerance' : 'Balanced')).toLowerCase() }}{{ s.draft_orders_count ? ` · ${s.draft_orders_count} draft${s.draft_orders_count === 1 ? '' : 's'}` : '' }}
+              </p>
             </div>
           </div>
         </AppCard>
@@ -397,11 +403,11 @@ const insights = computed<Insight[]>(() => {
   if (tt.collections > 0 && tt.expenses > tt.collections * 0.2) {
     out.push({ level: 'warning', title: 'Expenses are high', body: `Route expenses of ${money(tt.expenses)} are ${pct((tt.expenses / tt.collections) * 100)} of collections.` });
   }
-  if (tt.variance_shifts > 0) {
+  if ((tt.flagged_shifts ?? tt.variance_shifts) > 0) {
     out.push({
       level: 'warning',
       title: 'Cash variances',
-      body: `${tt.variance_shifts} of ${tt.shifts_count} closed shifts did not balance, netting ${signedMoney(tt.variance)}. See the Shifts tab.`,
+      body: `${tt.flagged_shifts ?? tt.variance_shifts} of ${tt.shifts_count} closed shifts were flagged beyond tolerance, netting ${signedMoney(tt.variance)} across all variances. See the Shifts tab.`,
     });
   }
   const busiest = [...r.daily].sort((a, b) => b.sales - a.sales)[0];

@@ -278,37 +278,7 @@ def get_customer_ledger(customer: str, from_date: str = None, to_date: str = Non
 		"entries": entries
 	}
 
-
-@frappe.whitelist()
-def get_route_expenses():
-	_require_van_user()
-	user = frappe.session.user
-	from frappe.utils import nowdate
-	today = nowdate()
-
-	return frappe.get_all(
-		"Van Expense Log",
-		filters={"driver": user, "expense_date": today},
-		fields=["name", "expense_type", "amount", "notes", "creation"],
-		order_by="creation desc"
-	)
-
-
-@frappe.whitelist()
-def submit_route_expense(expense_type: str, amount: float, notes: str = None):
-	_require_van_user()
-	require_open_shift("log an expense")
-	user = frappe.session.user
-	from frappe.utils import nowdate
-	today = nowdate()
-
-	doc = frappe.new_doc("Van Expense Log")
-	doc.driver = user
-	doc.expense_date = today
-	doc.expense_type = expense_type
-	doc.amount = float(amount)
-	doc.notes = notes
-
-	# Van Sales Driver role has create permission on Van Expense Log — no bypass needed.
-	doc.insert()
-	return doc.name
+# Expenses used to be logged here as plain Van Expense Log records (no accounting).
+# New entries are Van Cash Movements (expense or deposit, posted to a Journal Entry):
+# see van_sale.van_sale.cash_movement. Old logs stay readable and still count in
+# shift and manager reports.

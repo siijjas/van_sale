@@ -6,7 +6,7 @@ Run with: bench run-tests --site <site> --module van_sale.van_sale.tests.test_ma
 import frappe
 from frappe.utils import add_days, nowdate
 
-from van_sale.van_sale.finance import submit_route_expense
+from van_sale.van_sale.cash_movement import create_cash_movement
 from van_sale.van_sale.manager_report import get_fleet, get_manager_dashboard, get_period_report
 from van_sale.van_sale.sales import create_sales_order, submit_sales_order
 from van_sale.van_sale.shift import open_shift
@@ -32,9 +32,24 @@ class TestManagerReport(base.TestShiftAndAccessRegressions):
 		frappe.set_user(self.driver_user)
 		so = create_sales_order(self.customer_allowed, [{"item_code": self.item_code, "qty": 3, "rate": 20}])["name"]
 		submit_sales_order(so)
-		submit_route_expense("Tolls", 7)
+
+		# Trading without a shift is flagged; opening one shows the van as open.
+		frappe.set_user("Administrator")
+		dashboard = get_manager_dashboard()
+		self.assertIn(
+			("no_shift", self.driver_user), {(a["kind"], a["driver"]) for a in dashboard["alerts"]}
+		)
+		frappe.set_user(self.driver_user)
+		open_shift(balance_details=f'[{{"mode_of_payment": "{self.cash_mode}", "opening_amount": 50}}]')
+		# Cash movements need the open shift (they come out of its drawer).
+		create_cash_movement("Expense", 7, remarks="Tolls")
+		create_cash_movement("Deposit", 20)
 
 		frappe.set_user("Administrator")
+		van = next(v for v in get_manager_dashboard()["vans"] if v["driver"] == self.driver_user)
+		self.assertEqual(van["shift_status"], "open")
+		self.assertIsNotNone(van["expected_cash"])
+
 		report = get_period_report(nowdate(), nowdate(), driver=self.driver_user)
 		after = self._driver_row(report)
 		self.assertAlmostEqual(after["sales"] - before["sales"], 60, places=2)
@@ -45,22 +60,13 @@ class TestManagerReport(base.TestShiftAndAccessRegressions):
 		self.assertAlmostEqual(report["totals"]["sales"], after["sales"], places=2)
 		self.assertEqual(len(report["daily"]), 1)
 		self.assertIn(self.item_code, [row["item_code"] for row in report["items"]])
-		self.assertIn("Tolls", [row["expense_type"] for row in report["expenses_by_type"]])
+		self.assertAlmostEqual(after["deposits"] - before.get("deposits", 0), 20, places=2)
+		# Cash-movement expenses group by their expense account's name.
+		expense_label = frappe.db.get_value("Account", self.expense_account, "account_name")
+		self.assertIn(expense_label, [row["expense_type"] for row in report["expenses_by_type"]])
 		# The previous period is the same length, immediately before.
 		self.assertEqual(report["period"]["previous_to"], str(add_days(nowdate(), -1)))
 		self.assertEqual(report["period"]["previous_from"], str(add_days(nowdate(), -1)))
-
-		# Trading without a shift is flagged; opening one shows the van as open.
-		dashboard = get_manager_dashboard()
-		self.assertIn(
-			("no_shift", self.driver_user), {(a["kind"], a["driver"]) for a in dashboard["alerts"]}
-		)
-		frappe.set_user(self.driver_user)
-		open_shift(balance_details=f'[{{"mode_of_payment": "{self.cash_mode}", "opening_amount": 50}}]')
-		frappe.set_user("Administrator")
-		van = next(v for v in get_manager_dashboard()["vans"] if v["driver"] == self.driver_user)
-		self.assertEqual(van["shift_status"], "open")
-		self.assertIsNotNone(van["expected_cash"])
 
 	def test_period_report_rejects_bad_ranges(self):
 		frappe.set_user("Administrator")

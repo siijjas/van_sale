@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "profile_name",
+  "profile_type",
   "company",
   "is_active",
   "column_break_identity",
@@ -17,6 +18,7 @@
   "section_warehouses",
   "source_warehouse",
   "van_warehouse",
+  "stock_warehouse",
   "section_drivers",
   "assigned_drivers",
   "section_customers",
@@ -31,9 +33,20 @@
   "allow_rate_change",
   "allow_discount_change",
   "allow_sale_without_stock",
+  "use_shifts",
   "require_open_shift",
+  "variance_tolerance",
   "validate_stock_on_save",
   "allow_offline_stock_dashboard",
+  "section_cash_movement",
+  "allow_expense",
+  "allow_cash_deposit",
+  "cash_account",
+  "column_break_cash_movement",
+  "back_office_cash_account",
+  "cash_movement_max_amount",
+  "require_cash_movement_remarks",
+  "allowed_expense_accounts",
   "section_pricing",
   "taxes_and_charges",
   "apply_discount_on",
@@ -59,6 +72,17 @@
    "label": "Profile Name",
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "default": "Van Sales",
+   "description": "Van Sales: the staff sells and delivers from a van warehouse (stock loading, invoicing, delivery and returns in the app). Field Sales: the staff only takes orders and collects payments; invoicing, delivery and returns are done in the back office.",
+   "fieldname": "profile_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Profile Type",
+   "options": "Van Sales\nField Sales",
+   "reqd": 1
   },
   {
    "fieldname": "company",
@@ -109,7 +133,8 @@
    "in_list_view": 1,
    "label": "Main Warehouse",
    "options": "Warehouse",
-   "reqd": 1
+   "depends_on": "eval:doc.profile_type != \"Field Sales\"",
+   "mandatory_depends_on": "eval:doc.profile_type != \"Field Sales\""
   },
   {
    "fieldname": "van_warehouse",
@@ -117,7 +142,16 @@
    "in_list_view": 1,
    "label": "Van Warehouse",
    "options": "Warehouse",
-   "reqd": 1
+   "depends_on": "eval:doc.profile_type != \"Field Sales\"",
+   "mandatory_depends_on": "eval:doc.profile_type != \"Field Sales\""
+  },
+  {
+   "depends_on": "eval:doc.profile_type == \"Field Sales\"",
+   "description": "Field Sales only. Stock from this warehouse is shown in the catalog for information; it never blocks an order.",
+   "fieldname": "stock_warehouse",
+   "fieldtype": "Link",
+   "label": "Stock Warehouse (display only)",
+   "options": "Warehouse"
   },
   {
    "fieldname": "section_drivers",
@@ -174,7 +208,8 @@
    "default": "5",
    "fieldname": "low_stock_threshold",
    "fieldtype": "Float",
-   "label": "Low Stock Threshold"
+   "label": "Low Stock Threshold",
+   "depends_on": "eval:doc.profile_type != \"Field Sales\""
   },
   {
    "fieldname": "column_break_controls",
@@ -197,26 +232,103 @@
    "description": "Let drivers add out-of-stock items to orders and submit invoices that take the van warehouse into negative stock.",
    "fieldname": "allow_sale_without_stock",
    "fieldtype": "Check",
-   "label": "Allow Sale Without Stock"
+   "label": "Allow Sale Without Stock",
+   "depends_on": "eval:doc.profile_type != \"Field Sales\""
+  },
+  {
+   "default": "1",
+   "description": "Staff open a shift (cash float) and close it with a cash reconciliation. Turn off for staff who only take orders.",
+   "fieldname": "use_shifts",
+   "fieldtype": "Check",
+   "label": "Use Shifts"
   },
   {
    "default": "0",
    "description": "Block orders, invoices, payments, returns and expenses until the driver has opened today's shift.",
    "fieldname": "require_open_shift",
    "fieldtype": "Check",
-   "label": "Require Open Shift"
+   "label": "Require Open Shift",
+   "depends_on": "eval:doc.use_shifts"
+  },
+  {
+   "fieldname": "variance_tolerance",
+   "fieldtype": "Currency",
+   "label": "Variance Tolerance",
+   "depends_on": "eval:doc.use_shifts",
+   "description": "A closing whose counted cash differs from expected by more than this is flagged Exceeds Tolerance on the closing and the manager dashboard. 0 flags any difference. Never blocks closing."
   },
   {
    "default": "0",
    "fieldname": "validate_stock_on_save",
    "fieldtype": "Check",
-   "label": "Validate Stock on Save"
+   "label": "Validate Stock on Save",
+   "depends_on": "eval:doc.profile_type != \"Field Sales\""
   },
   {
    "default": "1",
    "fieldname": "allow_offline_stock_dashboard",
    "fieldtype": "Check",
-   "label": "Allow Offline Stock Dashboard"
+   "label": "Allow Offline Stock Dashboard",
+   "depends_on": "eval:doc.profile_type != \"Field Sales\""
+  },
+  {
+   "depends_on": "eval:doc.use_shifts",
+   "fieldname": "section_cash_movement",
+   "fieldtype": "Section Break",
+   "label": "Cash Movements (Expenses & Deposits)"
+  },
+  {
+   "default": "1",
+   "description": "Staff can pay an expense out of the cash drawer. Posts a Journal Entry: expense account debited, cash drawer credited.",
+   "fieldname": "allow_expense",
+   "fieldtype": "Check",
+   "label": "Allow Expenses"
+  },
+  {
+   "default": "1",
+   "description": "Staff can hand cash over to the office mid-shift. Posts a Journal Entry: back office cash account debited, cash drawer credited.",
+   "fieldname": "allow_cash_deposit",
+   "fieldtype": "Check",
+   "label": "Allow Cash Deposits"
+  },
+  {
+   "description": "The cash drawer account. Left blank, the Default Cash Mode's account for the company is used.",
+   "fieldname": "cash_account",
+   "fieldtype": "Link",
+   "label": "Cash Drawer Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_cash_movement",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.allow_cash_deposit",
+   "description": "Where deposits land. Left blank, the company's default cash account is used.",
+   "fieldname": "back_office_cash_account",
+   "fieldtype": "Link",
+   "label": "Back Office Cash Account",
+   "options": "Account"
+  },
+  {
+   "description": "0 means no limit.",
+   "fieldname": "cash_movement_max_amount",
+   "fieldtype": "Currency",
+   "label": "Max Amount per Movement"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_cash_movement_remarks",
+   "fieldtype": "Check",
+   "label": "Require Remarks"
+  },
+  {
+   "depends_on": "eval:doc.allow_expense",
+   "description": "Leave empty to allow every expense account of the company.",
+   "fieldname": "allowed_expense_accounts",
+   "fieldtype": "Table MultiSelect",
+   "label": "Allowed Expense Accounts",
+   "options": "Van Profile Expense Account"
   },
   {
    "fieldname": "section_pricing",
@@ -283,8 +395,9 @@
   {
    "fieldname": "expense_account",
    "fieldtype": "Link",
-   "label": "Expense Account",
-   "options": "Account"
+   "label": "Default Expense Account",
+   "options": "Account",
+   "description": "Pre-selected for a new expense. Must be one of the allowed expense accounts below, if any are set."
   },
   {
    "fieldname": "column_break_accounting",
@@ -305,7 +418,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-30 00:00:00.000000",
+ "modified": "2026-10-12 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Van Sale",
  "name": "Van Profile",
@@ -341,7 +454,7 @@
   }
  ],
  "quick_entry": 1,
- "search_fields": "company,source_warehouse,van_warehouse",
+ "search_fields": "profile_type,company,source_warehouse,van_warehouse",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

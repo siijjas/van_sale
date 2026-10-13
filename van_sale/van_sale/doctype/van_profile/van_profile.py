@@ -4,10 +4,12 @@ from frappe.model.document import Document
 DRIVER_ROLE = "Van Sales Driver"
 
 
+PROFILE_TYPES = ("Van Sales", "Field Sales")
+
+
 class VanProfile(Document):
 	def validate(self):
-		if self.source_warehouse and self.van_warehouse and self.source_warehouse == self.van_warehouse:
-			frappe.throw("Main Warehouse and Van Warehouse must be different")
+		self._validate_profile_type()
 
 		# Ensure no duplicate drivers in the assigned_drivers table
 		seen_users = set()
@@ -25,6 +27,37 @@ class VanProfile(Document):
 
 		self._validate_drivers_are_enabled()
 		self._validate_one_active_profile_per_driver()
+
+	def _validate_profile_type(self):
+		"""Van Sales needs both warehouses (the app loads, sells from and returns into
+		the van). Field Sales has no van: the warehouses are cleared so nothing
+		downstream can accidentally treat the profile as a van, and the optional
+		stock_warehouse is only ever read for display."""
+		self.profile_type = self.profile_type or "Van Sales"
+		if self.profile_type not in PROFILE_TYPES:
+			frappe.throw(f"Profile Type must be one of: {', '.join(PROFILE_TYPES)}")
+
+		if self.is_field_sales():
+			self.source_warehouse = None
+			self.van_warehouse = None
+			# Stock-only controls are meaningless without a van.
+			self.allow_sale_without_stock = 0
+			self.validate_stock_on_save = 0
+			self.allow_offline_stock_dashboard = 0
+			if not self.use_shifts:
+				self.require_open_shift = 0
+			return
+
+		self.stock_warehouse = None
+		if not self.source_warehouse or not self.van_warehouse:
+			frappe.throw("A Van Sales profile needs both a Main Warehouse and a Van Warehouse")
+		if self.source_warehouse == self.van_warehouse:
+			frappe.throw("Main Warehouse and Van Warehouse must be different")
+		if not self.use_shifts:
+			self.require_open_shift = 0
+
+	def is_field_sales(self) -> bool:
+		return (self.profile_type or "Van Sales") == "Field Sales"
 
 	def _validate_drivers_are_enabled(self):
 		"""Reject a disabled User: they can never log in, so the assignment does

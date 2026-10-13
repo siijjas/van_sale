@@ -84,6 +84,62 @@ def _get_driver_config(user: str | None = None, required: bool = True, use_cache
 	return payload
 
 
+PROFILE_TYPE_VAN = "Van Sales"
+PROFILE_TYPE_FIELD = "Field Sales"
+
+
+def _capabilities(config: dict | None) -> dict:
+	"""What the app lets this staff member do, derived from their Van Profile.
+
+	The frontend gates screens and buttons on this block (never on profile_type
+	directly) and the endpoints below enforce the same flags server-side via
+	_require_capability(). A manager with no profile keeps the historical behaviour:
+	everything except van-stock tools, which need a van warehouse to exist.
+	"""
+	if not config:
+		return {
+			"is_field_sales": False,
+			"can_invoice": True,
+			"can_deliver": True,
+			"can_return": True,
+			"can_load_stock": False,
+			"can_view_stock": False,
+			"uses_shifts": True,
+			"requires_open_shift": False,
+		}
+	is_field = (config.get("profile_type") or PROFILE_TYPE_VAN) == PROFILE_TYPE_FIELD
+	uses_shifts = _coerce_check(config.get("use_shifts", True))
+	return {
+		"is_field_sales": is_field,
+		# Field Sales takes orders and collects payments only; invoicing, delivery and
+		# returns are back-office work, and there is no van to load or count.
+		"can_invoice": not is_field,
+		"can_deliver": not is_field,
+		"can_return": not is_field,
+		"can_load_stock": not is_field,
+		"can_view_stock": not is_field,
+		"uses_shifts": uses_shifts,
+		"requires_open_shift": uses_shifts and _coerce_check(config.get("require_open_shift")),
+	}
+
+
+def _require_capability(capability: str, action: str, user: str | None = None):
+	"""Refuse an endpoint the caller's profile type does not allow.
+
+	`action` completes the sentence "Your profile does not allow you to ...".
+	Callers without a profile (managers) pass: they are already gated by
+	_require_van_user() and keep the behaviour they had before profile types existed.
+	"""
+	config = _get_driver_config(user=user, required=False)
+	if not config:
+		return
+	if not _capabilities(config).get(capability):
+		frappe.throw(
+			f"Your {config.get('profile_type') or PROFILE_TYPE_VAN} profile does not allow you to {action}.",
+			frappe.PermissionError,
+		)
+
+
 def _get_allowed_payment_modes(user: str | None = None, all_modes: bool = False) -> list[str] | None:
 	if all_modes:
 		return None

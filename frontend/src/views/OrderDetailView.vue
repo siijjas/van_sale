@@ -68,8 +68,13 @@
         <AppButton v-if="order.docstatus === 1" variant="secondary" size="sm" icon="printer" @click="printPdf">Print receipt</AppButton>
       </div>
 
-      <!-- Invoicing options -->
-      <AppCard v-if="order.docstatus === 1 && (order.per_billed ?? 0) < 100">
+      <!-- Invoicing options (Van Sales only; Field Sales orders are billed by the back office) -->
+      <AppAlert
+        v-if="!canInvoice && order.docstatus === 1 && (order.per_billed ?? 0) < 100"
+        tone="info"
+        message="This order is submitted. Invoicing and delivery are handled by the back office."
+      />
+      <AppCard v-if="canInvoice && order.docstatus === 1 && (order.per_billed ?? 0) < 100">
         <div class="space-y-3">
           <label class="text-xs font-bold uppercase tracking-wider text-muted">Invoice type</label>
           <SegmentedControl
@@ -92,7 +97,7 @@
         {{ submitting ? 'Submitting…' : 'Submit order' }}
       </AppButton>
     </StickyBar>
-    <StickyBar v-else-if="order && order.docstatus === 1 && (order.per_billed ?? 0) < 100">
+    <StickyBar v-else-if="canInvoice && order && order.docstatus === 1 && (order.per_billed ?? 0) < 100">
       <AppAlert v-if="invoiceCreated" tone="success" :message="`Invoice ${invoiceCreated} created`" class="mb-2" />
       <AppButton
         size="lg"
@@ -105,7 +110,7 @@
         {{ invoicing ? 'Creating invoice…' : markAsPaid ? 'Create paid invoice' : 'Create sales invoice' }}
       </AppButton>
     </StickyBar>
-    <StickyBar v-else-if="hasPendingDelivery">
+    <StickyBar v-else-if="canDeliver && hasPendingDelivery">
       <AppButton size="lg" block icon="truck" :loading="delivering" @click="deliverPending">
         {{ delivering ? 'Delivering…' : 'Deliver pending items' }}
       </AppButton>
@@ -151,6 +156,8 @@ const route = useRoute();
 const router = useRouter();
 const store = useSessionStore();
 const currency = computed(() => store.currencyDisplay);
+const canInvoice = computed(() => store.capabilities.can_invoice);
+const canDeliver = computed(() => store.capabilities.can_deliver);
 const orderId = route.params.name as string;
 
 const order = ref<SalesOrder | null>(null);

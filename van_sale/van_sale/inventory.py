@@ -4,7 +4,8 @@ from frappe.utils import flt, now_datetime, nowdate, nowtime
 from erpnext.stock.doctype.batch.batch import get_batch_qty as get_batch_qty_for_warehouse
 from van_sale.van_sale.utils import (
 	_get_driver_config, _coerce_check, _to_float, _default_company,
-	_coerce_list, _driver_stock_cache_key, DRIVER_CACHE_TTL, _require_van_user
+	_coerce_list, _driver_stock_cache_key, DRIVER_CACHE_TTL, _require_van_user,
+	_require_capability,
 )
 
 def _set_driver_stock_cache(user: str, payload: dict):
@@ -107,6 +108,7 @@ def get_driver_stock_dashboard(force_refresh: int = 0):
 	# app without it, relying on _get_driver_config() throwing instead. utils.py states
 	# the convention — call _require_van_user() at the very top of every one.
 	_require_van_user()
+	_require_capability("can_view_stock", "view van stock")
 	user = frappe.session.user
 	use_cache = not _coerce_check(force_refresh)
 	if use_cache:
@@ -132,6 +134,7 @@ def get_driver_stock_dashboard(force_refresh: int = 0):
 @frappe.whitelist()
 def search_transfer_items(search: str | None = None, page_length: int = 20):
 	_require_van_user()
+	_require_capability("can_load_stock", "load stock")
 	config = _get_driver_config()
 	limit = max(1, min(int(page_length or 20), 50))
 	text = (search or "").strip()
@@ -183,6 +186,7 @@ def search_transfer_items(search: str | None = None, page_length: int = 20):
 @frappe.whitelist()
 def get_transfer_item_detail(item_code: str):
 	_require_van_user()
+	_require_capability("can_load_stock", "load stock")
 	config = _get_driver_config()
 	if not frappe.db.exists("Item", item_code):
 		frappe.throw(f"Item {item_code} was not found")
@@ -212,6 +216,7 @@ def get_transfer_item_detail(item_code: str):
 @frappe.whitelist()
 def create_stock_transfer(items, remarks: str | None = None, submit: int = 1, posting_date: str | None = None):
 	_require_van_user()
+	_require_capability("can_load_stock", "load stock")
 	config = _get_driver_config()
 	lines = _parse_stock_transfer_lines(items)
 	entry = frappe.new_doc("Stock Entry")

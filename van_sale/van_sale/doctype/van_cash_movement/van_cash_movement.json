@@ -1,0 +1,204 @@
+{
+ "actions": [],
+ "autoname": "format:VCM-{YYYY}-{MM}-{DD}-{#####}",
+ "creation": "2026-10-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "movement_type",
+  "amount",
+  "posting_date",
+  "column_break_head",
+  "driver",
+  "van_profile",
+  "opening_shift",
+  "company",
+  "section_details",
+  "expense_account",
+  "against_name",
+  "remarks",
+  "column_break_details",
+  "source_account",
+  "target_account",
+  "cost_center",
+  "section_links",
+  "journal_entry",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "movement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Movement Type",
+   "options": "Expense\nDeposit",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "options": "Company:company:default_currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "driver",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Staff",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "van_profile",
+   "fieldtype": "Link",
+   "label": "Van Profile",
+   "options": "Van Profile"
+  },
+  {
+   "fieldname": "opening_shift",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Shift",
+   "options": "Van Shift Opening",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_details",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "depends_on": "eval:doc.movement_type == 'Expense'",
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "Expense Account",
+   "options": "Account",
+   "mandatory_depends_on": "eval:doc.movement_type == 'Expense'"
+  },
+  {
+   "description": "Paid to (expense) or deposited with (deposit).",
+   "fieldname": "against_name",
+   "fieldtype": "Data",
+   "label": "Paid To / Deposited With"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "column_break_details",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The cash drawer the money leaves.",
+   "fieldname": "source_account",
+   "fieldtype": "Link",
+   "label": "Source Account (Cash Drawer)",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "description": "The expense account, or the back-office cash account for a deposit.",
+   "fieldname": "target_account",
+   "fieldtype": "Link",
+   "label": "Target Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "section_links",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "journal_entry",
+   "fieldtype": "Link",
+   "label": "Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Van Cash Movement",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-10-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Van Sale",
+ "name": "Van Cash Movement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "amend": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Van Sales Driver"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "movement_type",
+ "track_changes": 1
+}

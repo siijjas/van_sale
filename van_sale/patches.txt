@@ -6,3 +6,5 @@ van_sale.patches.rename_shift_report_print_formats
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 van_sale.patches.remove_driver_configuration
+van_sale.patches.set_default_profile_type
+van_sale.patches.backfill_shift_closing_links

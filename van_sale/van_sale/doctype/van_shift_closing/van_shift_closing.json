@@ -18,13 +18,23 @@
   "period_end",
   "section_totals",
   "total_sales",
+  "net_total",
+  "total_taxes",
+  "total_quantity",
+  "total_returns",
   "total_collections",
   "total_expenses",
+  "total_deposits",
   "total_opening_float",
   "expected_cash",
   "net_difference",
+  "variance_tolerance",
+  "variance_status",
+  "draft_orders_count",
   "section_reconciliation",
   "payment_reconciliation",
+  "section_taxes",
+  "taxes",
   "section_transactions",
   "transactions",
   "notes"
@@ -104,6 +114,29 @@
    "label": "Total Sales"
   },
   {
+   "fieldname": "net_total",
+   "fieldtype": "Currency",
+   "label": "Net Total",
+   "description": "Sales before taxes (sum of Sales Order net totals)."
+  },
+  {
+   "fieldname": "total_taxes",
+   "fieldtype": "Currency",
+   "label": "Total Taxes"
+  },
+  {
+   "fieldname": "total_quantity",
+   "fieldtype": "Float",
+   "label": "Total Quantity",
+   "description": "Units sold in stock UOM."
+  },
+  {
+   "fieldname": "total_returns",
+   "fieldtype": "Currency",
+   "label": "Total Returns",
+   "description": "Credit notes issued during the shift."
+  },
+  {
    "fieldname": "total_collections",
    "fieldtype": "Currency",
    "label": "Total Collections"
@@ -114,12 +147,17 @@
    "label": "Total Expenses"
   },
   {
+   "fieldname": "total_deposits",
+   "fieldtype": "Currency",
+   "label": "Total Cash Deposits"
+  },
+  {
    "fieldname": "total_opening_float",
    "fieldtype": "Currency",
    "label": "Total Opening Float"
   },
   {
-   "description": "Opening cash float + cash collections - cash expenses",
+   "description": "Opening cash float + cash collections - expenses - deposits",
    "fieldname": "expected_cash",
    "fieldtype": "Currency",
    "label": "Expected Cash"
@@ -130,6 +168,29 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Net Difference"
+  },
+  {
+   "fieldname": "variance_tolerance",
+   "fieldtype": "Currency",
+   "label": "Variance Tolerance",
+   "read_only": 1,
+   "description": "The Van Profile's tolerance when the shift closed."
+  },
+  {
+   "fieldname": "variance_status",
+   "fieldtype": "Select",
+   "label": "Variance Status",
+   "options": "\nBalanced\nWithin Tolerance\nExceeds Tolerance",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "draft_orders_count",
+   "fieldtype": "Int",
+   "label": "Draft Orders Left",
+   "read_only": 1,
+   "description": "Draft Sales Orders made during the shift that were still unsubmitted at closing. They are not in the totals."
   },
   {
    "fieldname": "section_reconciliation",
@@ -143,12 +204,23 @@
    "options": "Van Shift Payment Reconciliation"
   },
   {
+   "fieldname": "section_taxes",
+   "fieldtype": "Section Break",
+   "label": "Taxes"
+  },
+  {
+   "fieldname": "taxes",
+   "fieldtype": "Table",
+   "label": "Taxes",
+   "options": "Van Shift Closing Tax"
+  },
+  {
    "fieldname": "section_transactions",
    "fieldtype": "Section Break",
    "label": "Transactions"
   },
   {
-   "description": "The exact Sales Order / Payment Entry / Van Expense Log records summed into this shift's totals — a durable audit trail, since totals are computed by date+owner and could otherwise be re-derived differently later if a same-day record changes.",
+   "description": "The exact Sales Order / Sales Invoice / Payment Entry / Van Cash Movement records summed into this shift's totals: a durable audit trail, since totals are computed by driver and creation time within the shift window and could otherwise be re-derived differently later.",
    "fieldname": "transactions",
    "fieldtype": "Table",
    "label": "Transactions",
@@ -163,7 +235,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-30 00:00:00.000000",
+ "modified": "2026-10-12 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Van Sale",
  "name": "Van Shift Closing",

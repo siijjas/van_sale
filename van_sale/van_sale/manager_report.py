@@ -18,6 +18,7 @@ from collections import defaultdict
 import frappe
 from frappe.utils import add_days, date_diff, flt, getdate, nowdate
 
+from van_sale.van_sale.doctype.van_shift_closing.van_shift_closing import VARIANCE_EXCEEDS, variance_status
 from van_sale.van_sale.shift import _compute_closing, _serialize_opening
 from van_sale.van_sale.utils import _manager_only
 
@@ -35,7 +36,7 @@ def _fleet(driver: str | None = None, van_profile: str | None = None) -> dict[st
 	profiles = frappe.get_all(
 		"Van Profile",
 		filters=filters,
-		fields=["name", "profile_name", "delivery_route", "is_active"],
+		fields=["name", "profile_name", "profile_type", "delivery_route", "is_active", "use_shifts"],
 		order_by="is_active desc, profile_name asc",
 	)
 	fleet: dict[str, dict] = {}
@@ -54,7 +55,9 @@ def _fleet(driver: str | None = None, van_profile: str | None = None) -> dict[st
 				"driver_name": frappe.utils.get_fullname(user),
 				"van_profile": profile.name,
 				"van_name": profile.profile_name or profile.name,
+				"profile_type": profile.profile_type or "Van Sales",
 				"delivery_route": profile.delivery_route,
+				"uses_shifts": bool(profile.use_shifts),
 			}
 	return fleet
 
@@ -98,16 +101,36 @@ def _period_totals(owners: tuple, from_date, to_date) -> dict:
 		group by owner""",
 		params,
 	)
+	# Expenses: legacy expense logs plus posted cash movements of type Expense.
 	expenses = _sum_by_owner(
+		"""select owner, sum(count) as count, sum(amount) as amount from (
+			select driver as owner, count(*) as count, sum(amount) as amount
+			from `tabVan Expense Log`
+			where docstatus < 2 and expense_date between %(from)s and %(to)s and driver in %(owners)s
+			group by driver
+			union all
+			select driver as owner, count(*) as count, sum(amount) as amount
+			from `tabVan Cash Movement`
+			where docstatus = 1 and movement_type = 'Expense'
+				and posting_date between %(from)s and %(to)s and driver in %(owners)s
+			group by driver
+		) as e group by owner""",
+		params,
+	)
+	deposits = _sum_by_owner(
 		"""select driver as owner, count(*) as count, sum(amount) as amount
-		from `tabVan Expense Log`
-		where docstatus < 2 and expense_date between %(from)s and %(to)s and driver in %(owners)s
+		from `tabVan Cash Movement`
+		where docstatus = 1 and movement_type = 'Deposit'
+			and posting_date between %(from)s and %(to)s and driver in %(owners)s
 		group by driver""",
 		params,
 	)
 	shifts = _sum_by_owner(
 		"""select driver as owner, count(*) as count, sum(net_difference) as variance,
-			sum(case when abs(net_difference) >= 0.005 then 1 else 0 end) as variance_count
+			sum(case when abs(net_difference) >= 0.005 then 1 else 0 end) as variance_count,
+			sum(case when ifnull(variance_status, '') = 'Exceeds Tolerance'
+				or (ifnull(variance_status, '') = '' and abs(net_difference) >= 0.005) then 1 else 0 end) as flagged_count,
+			sum(ifnull(draft_orders_count, 0)) as draft_orders
 		from `tabVan Shift Closing`
 		where docstatus = 1 and shift_date between %(from)s and %(to)s and driver in %(owners)s
 		group by driver""",
@@ -131,9 +154,13 @@ def _period_totals(owners: tuple, from_date, to_date) -> dict:
 			"collections": pick(collections, owner),
 			"expenses_count": int(pick(expenses, owner, "count")),
 			"expenses": pick(expenses, owner),
+			"deposits_count": int(pick(deposits, owner, "count")),
+			"deposits": pick(deposits, owner),
 			"shifts_count": int(pick(shifts, owner, "count")),
 			"variance": pick(shifts, owner, "variance"),
 			"variance_shifts": int(pick(shifts, owner, "variance_count")),
+			"flagged_shifts": int(pick(shifts, owner, "flagged_count")),
+			"draft_orders": int(pick(shifts, owner, "draft_orders")),
 		}
 
 	totals: dict = {}
@@ -147,8 +174,8 @@ def _period_totals(owners: tuple, from_date, to_date) -> dict:
 def _with_derived(row: dict) -> dict:
 	for key in (
 		"orders_count", "sales", "invoices_count", "invoiced", "returns_count", "returns",
-		"payments_count", "collections", "expenses_count", "expenses", "shifts_count",
-		"variance", "variance_shifts",
+		"payments_count", "collections", "expenses_count", "expenses", "deposits_count", "deposits",
+		"shifts_count", "variance", "variance_shifts", "flagged_shifts", "draft_orders",
 	):
 		row.setdefault(key, 0)
 	row["net_sales"] = flt(row["sales"]) - flt(row["returns"])
@@ -168,9 +195,16 @@ def _daily(owners: tuple, from_date, to_date) -> list[dict]:
 			where docstatus = 1 and payment_type = 'Receive' and posting_date between %(from)s and %(to)s
 				and owner in %(owners)s
 			group by posting_date""",
-		"expenses": """select expense_date as d, sum(amount) as v from `tabVan Expense Log`
-			where docstatus < 2 and expense_date between %(from)s and %(to)s and driver in %(owners)s
-			group by expense_date""",
+		"expenses": """select d, sum(v) as v from (
+				select expense_date as d, sum(amount) as v from `tabVan Expense Log`
+				where docstatus < 2 and expense_date between %(from)s and %(to)s and driver in %(owners)s
+				group by expense_date
+				union all
+				select posting_date as d, sum(amount) as v from `tabVan Cash Movement`
+				where docstatus = 1 and movement_type = 'Expense'
+					and posting_date between %(from)s and %(to)s and driver in %(owners)s
+				group by posting_date
+			) as e group by d""",
 		"returns": """select posting_date as d, -sum(base_grand_total) as v from `tabSales Invoice`
 			where docstatus = 1 and is_return = 1 and posting_date between %(from)s and %(to)s
 				and owner in %(owners)s
@@ -265,11 +299,21 @@ def _collections_by_mode(owners: tuple, from_date, to_date) -> list[dict]:
 
 
 def _expenses_by_type(owners: tuple, from_date, to_date) -> list[dict]:
+	# Legacy logs group by their free-text type; cash movements by expense account.
 	return frappe.db.sql(
-		"""select coalesce(expense_type, 'Other') as expense_type, count(*) as count, sum(amount) as amount
-		from `tabVan Expense Log`
-		where docstatus < 2 and expense_date between %(from)s and %(to)s and driver in %(owners)s
-		group by expense_type
+		"""select expense_type, sum(count) as count, sum(amount) as amount from (
+			select coalesce(expense_type, 'Other') as expense_type, count(*) as count, sum(amount) as amount
+			from `tabVan Expense Log`
+			where docstatus < 2 and expense_date between %(from)s and %(to)s and driver in %(owners)s
+			group by expense_type
+			union all
+			select coalesce(acc.account_name, m.target_account) as expense_type, count(*) as count, sum(m.amount) as amount
+			from `tabVan Cash Movement` m
+			left join `tabAccount` acc on acc.name = m.target_account
+			where m.docstatus = 1 and m.movement_type = 'Expense'
+				and m.posting_date between %(from)s and %(to)s and m.driver in %(owners)s
+			group by m.target_account
+		) as e group by expense_type
 		order by amount desc""",
 		{"owners": owners, "from": from_date, "to": to_date},
 		as_dict=True,
@@ -279,7 +323,8 @@ def _expenses_by_type(owners: tuple, from_date, to_date) -> list[dict]:
 def _shift_closings(owners: tuple, from_date, to_date) -> list[dict]:
 	return frappe.db.sql(
 		"""select name, opening_shift, driver, shift_date, period_start, period_end, total_sales,
-			total_collections, total_expenses, expected_cash, net_difference
+			total_collections, total_expenses, expected_cash, net_difference, variance_status,
+			variance_tolerance, draft_orders_count, closed_by
 		from `tabVan Shift Closing`
 		where docstatus = 1 and shift_date between %(from)s and %(to)s and driver in %(owners)s
 		order by period_end desc""",
@@ -298,6 +343,7 @@ def _comparison(current: dict, previous: dict) -> list[dict]:
 		("net_sales", "Net sales"),
 		("collections", "Collections"),
 		("expenses", "Expenses"),
+		("deposits", "Cash deposited to office"),
 		("net_cash", "Net cash (collections − expenses)"),
 		("variance", "Cash variance"),
 	):
@@ -412,7 +458,7 @@ def get_manager_dashboard():
 		for row in frappe.get_all(
 			"Van Shift Closing",
 			filters={"docstatus": 1, "shift_date": today, "driver": ["in", owners]},
-			fields=["name", "driver", "period_end", "net_difference"],
+			fields=["name", "driver", "period_end", "net_difference", "variance_status", "variance_tolerance", "draft_orders_count"],
 			order_by="period_end asc",
 		)
 	}
@@ -424,7 +470,8 @@ def get_manager_dashboard():
 		opening = open_today.get(owner)
 		closing = closed_today.get(owner)
 		row.update({"shift_status": "none", "opening_shift": None, "closing_shift": None,
-			"shift_since": None, "expected_cash": None, "net_difference": None})
+			"shift_since": None, "expected_cash": None, "net_difference": None, "variance_status": None,
+			"draft_orders_count": 0})
 		if opening:
 			row.update({
 				"shift_status": "open",
@@ -440,6 +487,9 @@ def get_manager_dashboard():
 				"closing_shift": closing.name,
 				"shift_since": str(closing.period_end) if closing.period_end else None,
 				"net_difference": flt(closing.net_difference),
+				"variance_status": closing.variance_status
+				or variance_status(closing.net_difference, closing.variance_tolerance),
+				"draft_orders_count": int(closing.draft_orders_count or 0),
 			})
 		old = stale.get(owner)
 		if old:
@@ -460,17 +510,34 @@ def get_manager_dashboard():
 				if len(old) == 1
 				else "Close them oldest first to reconcile each day's cash: " + ", ".join(o.name for o in old) + ".",
 			})
-		if closing and abs(flt(closing.net_difference)) >= 0.005:
+		# Variance is flag-only: a closing never blocks, but one outside the profile's
+		# tolerance needs a manager's eye. Within tolerance is shown on the row, not alerted.
+		if closing and row["variance_status"] == VARIANCE_EXCEEDS:
+			tolerance = flt(closing.variance_tolerance)
 			alerts.append({
-				"level": "danger" if flt(closing.net_difference) < 0 else "info",
+				"level": "danger" if flt(closing.net_difference) < 0 else "warning",
 				"kind": "variance",
 				"driver": owner,
 				"reference": closing.name,
 				"title": f"{info['driver_name']} closed with a cash variance",
-				"body": f"{'Short' if flt(closing.net_difference) < 0 else 'Over'} by {frappe.format_value(abs(flt(closing.net_difference)), {'fieldtype': 'Currency'})}.",
+				"body": (
+					f"{'Short' if flt(closing.net_difference) < 0 else 'Over'} by "
+					f"{frappe.format_value(abs(flt(closing.net_difference)), {'fieldtype': 'Currency'})}"
+					+ (f", beyond the {frappe.format_value(tolerance, {'fieldtype': 'Currency'})} tolerance." if tolerance else ".")
+				),
 				"amount": flt(closing.net_difference),
 			})
-		if row["shift_status"] in ("none", "stale") and (row["orders_count"] or row["payments_count"]):
+		if closing and int(closing.draft_orders_count or 0):
+			alerts.append({
+				"level": "info",
+				"kind": "draft_orders",
+				"driver": owner,
+				"reference": closing.name,
+				"title": f"{info['driver_name']} closed with {_plural(int(closing.draft_orders_count), 'draft order')} left",
+				"body": "They were not counted in the closing. Submit or cancel them from the order history.",
+			})
+		# Staff whose profile has no shifts (Field Sales) trade without one by design.
+		if info["uses_shifts"] and row["shift_status"] in ("none", "stale") and (row["orders_count"] or row["payments_count"]):
 			alerts.append({
 				"level": "warning",
 				"kind": "no_shift",

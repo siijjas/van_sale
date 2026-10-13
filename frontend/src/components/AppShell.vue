@@ -6,12 +6,12 @@
     >
       <div class="flex items-center gap-2.5">
         <div class="flex h-[38px] w-[38px] items-center justify-center rounded-xl bg-primary text-primary-fg shadow-btn">
-          <AppIcon name="truck" :size="20" />
+          <AppIcon :name="store.isFieldSales ? 'users' : 'truck'" :size="20" />
         </div>
         <div class="min-w-0">
-          <h1 class="truncate text-[15px] font-bold leading-tight tracking-tight">Van Sales</h1>
+          <h1 class="truncate text-[15px] font-bold leading-tight tracking-tight">{{ store.isFieldSales ? 'Field Sales' : 'Van Sales' }}</h1>
           <p class="truncate text-[11px] font-medium text-muted">
-            {{ store.driverConfig?.van_warehouse || store.session?.full_name || 'Workspace' }}
+            {{ store.driverConfig?.van_warehouse || store.driverConfig?.delivery_route || store.driverConfig?.profile_name || store.session?.full_name || 'Workspace' }}
           </p>
         </div>
       </div>
@@ -108,7 +108,7 @@ const navItems = computed<NavItem[]>(() => {
     },
   ];
 
-  if (store.driverConfig) {
+  if (store.driverConfig && store.capabilities.can_view_stock) {
     items.push({
       name: 'stock-dashboard',
       names: ['stock-dashboard', 'stock-transfer'],

@@ -1,5 +1,17 @@
 import { defineStore } from 'pinia';
-import type { UserSession, Item, CartLine, Customer, SalesOrderItem } from '../types';
+import type { UserSession, Item, CartLine, Customer, SalesOrderItem, Capabilities } from '../types';
+
+// A manager with no profile keeps the historical behaviour (see utils._capabilities).
+const DEFAULT_CAPABILITIES: Capabilities = {
+  is_field_sales: false,
+  can_invoice: true,
+  can_deliver: true,
+  can_return: true,
+  can_load_stock: false,
+  can_view_stock: false,
+  uses_shifts: true,
+  requires_open_shift: false,
+};
 import * as api from '../api/frappe';
 
 interface State {
@@ -41,6 +53,18 @@ export const useSessionStore = defineStore('session', {
     driverConfig: (state) => state.session?.driver_config || null,
     isManager: (state) => Boolean(state.session?.is_manager),
     isDriver: (state) => Boolean(state.session?.is_driver),
+    capabilities: (state): Capabilities =>
+      state.session?.capabilities || state.session?.driver_config?.capabilities || DEFAULT_CAPABILITIES,
+    isFieldSales(): boolean {
+      return this.capabilities.is_field_sales;
+    },
+    usesShifts(): boolean {
+      return this.capabilities.uses_shifts;
+    },
+    /** Field Sales never sells from a warehouse, so catalog stock is information only. */
+    canOrderWithoutStock(): boolean {
+      return this.capabilities.is_field_sales || Boolean(this.driverConfig?.allow_sale_without_stock);
+    },
   },
   actions: {
     async bootstrap() {

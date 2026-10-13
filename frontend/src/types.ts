@@ -6,6 +6,25 @@ export interface UserSession {
   is_manager?: boolean;
   is_driver?: boolean;
   driver_config?: DriverConfig | null;
+  capabilities?: Capabilities;
+}
+
+export type ProfileType = 'Van Sales' | 'Field Sales';
+
+/**
+ * What the app lets this staff member do, computed server-side from their Van
+ * Profile (utils._capabilities). Screens and buttons gate on these flags, never on
+ * profile_type directly, and the endpoints enforce the same flags.
+ */
+export interface Capabilities {
+  is_field_sales: boolean;
+  can_invoice: boolean;
+  can_deliver: boolean;
+  can_return: boolean;
+  can_load_stock: boolean;
+  can_view_stock: boolean;
+  uses_shifts: boolean;
+  requires_open_shift: boolean;
 }
 
 // The runtime driver config served in UserSession. It is derived entirely from
@@ -15,9 +34,13 @@ export interface UserSession {
 export interface DriverConfig {
   name: string;
   profile_name?: string;
+  profile_type?: ProfileType;
   company: string;
-  source_warehouse: string;
-  van_warehouse: string;
+  /** Van Sales only. Field Sales profiles carry neither warehouse. */
+  source_warehouse: string | null;
+  van_warehouse: string | null;
+  /** Field Sales only: catalog qty is read from here for display. */
+  stock_warehouse?: string | null;
   delivery_route?: string;
   daily_credit_limit: number;
   low_stock_threshold: number;
@@ -31,7 +54,9 @@ export interface DriverConfig {
   allow_rate_change?: boolean;
   allow_discount_change?: boolean;
   allow_sale_without_stock?: boolean;
+  use_shifts?: boolean;
   require_open_shift?: boolean;
+  variance_tolerance?: number;
   validate_stock_on_save?: boolean;
   ignore_pricing_rule?: boolean;
   disable_rounded_total?: boolean;
@@ -41,6 +66,7 @@ export interface DriverConfig {
   expense_account?: string;
   cost_center?: string;
   write_off_account?: string;
+  capabilities?: Capabilities;
 }
 
 export interface VanProfileDriver {
@@ -61,11 +87,39 @@ export interface ActiveShift {
   company?: string;
   van_profile?: string | null;
   period_start: string | null;
+  /** Set once closed; the shift's activity is everything created between period_start and period_end. */
+  period_end?: string | null;
+  closing_shift?: string | null;
   opening_float: number;
   balance_details: ShiftBalanceDetail[];
   notes?: string;
   /** Opened on an earlier day and never closed — must be closed before a new shift. */
   is_stale?: boolean;
+}
+
+export type VarianceStatus = 'Balanced' | 'Within Tolerance' | 'Exceeds Tolerance';
+
+export interface ShiftTaxRow {
+  account_head: string;
+  rate: number;
+  amount: number;
+}
+
+/** A draft Sales Order made during the shift and not submitted: not in any total. */
+export interface ShiftDraftOrder {
+  name: string;
+  customer: string;
+  customer_name: string | null;
+  grand_total: number;
+  creation: string;
+}
+
+/** Submitted activity on the shift's date from before the shift opened, claimed by no closing. */
+export interface OutsideWindow {
+  orders_count: number;
+  orders_total: number;
+  payments_count: number;
+  payments_total: number;
 }
 
 export interface PaymentReconciliationRow {
@@ -86,23 +140,70 @@ export interface ShiftClosingSummary {
   period_start: string | null;
   payment_reconciliation: PaymentReconciliationRow[];
   total_sales: number;
+  net_total: number;
+  total_taxes: number;
+  total_quantity: number;
+  total_returns: number;
+  taxes: ShiftTaxRow[];
   total_collections: number;
   total_expenses: number;
+  /** Cash handed to the office mid-shift (Van Cash Movement, type Deposit). */
+  total_deposits: number;
   total_opening_float: number;
   expected_cash: number;
+  /** From the Van Profile; a net difference beyond it is flagged, never blocked. */
+  variance_tolerance: number;
+  draft_orders: ShiftDraftOrder[];
+  outside_window: OutsideWindow;
+}
+
+// ─── Cash movements (cash_movement.py) ───────────────────────────────────────
+
+export type CashMovementType = 'Expense' | 'Deposit';
+
+export interface CashMovement {
+  name: string;
+  movement_type: CashMovementType;
+  amount: number;
+  posting_date: string;
+  driver: string;
+  opening_shift: string;
+  expense_account: string | null;
+  source_account: string;
+  target_account: string;
+  against_name: string | null;
+  remarks: string | null;
+  journal_entry: string | null;
+  docstatus: number;
+  creation: string;
+}
+
+export interface CashMovementContext {
+  opening_shift: string | null;
+  allow_expense: boolean;
+  allow_cash_deposit: boolean;
+  require_remarks: boolean;
+  max_amount: number;
+  cash_account: string | null;
+  back_office_cash_account: string | null;
+  default_expense_account: string | null;
+  expense_accounts: Array<{ name: string; account_name: string }>;
+  movements: CashMovement[];
 }
 
 export interface VanProfile {
   name: string;
   profile_name: string;
+  profile_type: ProfileType;
   company: string;
   is_active: boolean;
   delivery_route?: string;
   default_cash_mode?: string;
   selling_price_list?: string;
   currency?: string;
-  source_warehouse: string;
-  van_warehouse: string;
+  source_warehouse: string | null;
+  van_warehouse: string | null;
+  stock_warehouse?: string | null;
   assigned_drivers: VanProfileDriver[];
   allowed_payment_modes: string[];
   allowed_customer_groups: string[];
@@ -113,7 +214,9 @@ export interface VanProfile {
   allow_rate_change: boolean;
   allow_discount_change: boolean;
   allow_sale_without_stock: boolean;
+  use_shifts: boolean;
   require_open_shift: boolean;
+  variance_tolerance?: number;
   validate_stock_on_save: boolean;
   allow_offline_stock_dashboard: boolean;
   ignore_pricing_rule: boolean;
@@ -124,6 +227,15 @@ export interface VanProfile {
   expense_account?: string;
   cost_center?: string;
   write_off_account?: string;
+  // Cash movements (expenses & deposits from the drawer)
+  allow_expense: boolean;
+  allow_cash_deposit: boolean;
+  cash_account?: string | null;
+  back_office_cash_account?: string | null;
+  cash_movement_max_amount: number;
+  require_cash_movement_remarks: boolean;
+  allowed_expense_accounts: string[];
+  capabilities?: Capabilities;
 }
 
 export interface VanProfileOptions {
@@ -137,6 +249,9 @@ export interface VanProfileOptions {
   currencies: Array<{ name: string }>;
   print_formats: Array<{ name: string; doc_type: string }>;
   users: Array<{ name: string; full_name: string }>;
+  cash_accounts: Array<{ name: string; account_name: string; company: string; account_type: string }>;
+  expense_accounts: Array<{ name: string; account_name: string; company: string }>;
+  cost_centers: Array<{ name: string; company: string }>;
 }
 
 export interface DriverSetupOptions {
@@ -380,12 +495,21 @@ export interface ShiftReport {
     period_start: string | null;
     period_end: string | null;
     status: string;
+    closed_by?: string | null;
     notes: string | null;
   };
   totals: {
     total_sales: number;
+    net_total: number;
+    total_taxes: number;
+    total_quantity: number;
+    total_returns: number;
+    variance_tolerance?: number;
+    variance_status?: VarianceStatus;
+    draft_orders_count?: number;
     total_collections: number;
     total_expenses: number;
+    total_deposits: number;
     total_opening_float: number;
     expected_cash: number;
     net_difference?: number;
@@ -397,11 +521,25 @@ export interface ShiftReport {
     net_invoiced: number;
     payments_count: number;
     expenses_count: number;
+    deposits_count: number;
   };
   payment_reconciliation: ShiftReportReconciliationRow[];
   collections: Array<{ mode_of_payment: string; count: number; amount: number }>;
-  expenses: Array<{ name: string; expense_type: string; notes: string | null; amount: number }>;
+  taxes: ShiftTaxRow[];
+  /** Legacy expense logs and cash movements of type Expense; expense_type is the account name for the latter. */
+  expenses: ShiftReportCashRow[];
+  deposits: ShiftReportCashRow[];
   items: ShiftReportItem[];
+  /** Only on a summary: drafts can still be submitted while the shift is open. */
+  draft_orders: ShiftDraftOrder[];
+}
+
+export interface ShiftReportCashRow {
+  name: string;
+  expense_type: string;
+  notes: string | null;
+  amount: number;
+  journal_entry: string | null;
 }
 
 export interface ShiftClosingListRow {
@@ -415,6 +553,9 @@ export interface ShiftClosingListRow {
   total_sales: number;
   total_collections: number;
   net_difference: number;
+  variance_status?: VarianceStatus | null;
+  closed_by?: string | null;
+  draft_orders_count?: number;
 }
 
 // ─── Manager reports (manager_report.py) ─────────────────────────────────────
@@ -430,9 +571,14 @@ export interface FleetTotals {
   collections: number;
   expenses_count: number;
   expenses: number;
+  deposits_count?: number;
+  deposits?: number;
   shifts_count: number;
   variance: number;
   variance_shifts: number;
+  /** Closings whose variance exceeds the profile tolerance. */
+  flagged_shifts?: number;
+  draft_orders?: number;
   net_sales: number;
   net_cash: number;
   avg_order: number;
@@ -444,7 +590,9 @@ export interface FleetDriverInfo {
   driver_name: string;
   van_profile: string;
   van_name: string;
+  profile_type?: ProfileType;
   delivery_route?: string | null;
+  uses_shifts?: boolean;
 }
 
 export type FleetDriverRow = FleetDriverInfo & FleetTotals;
@@ -456,11 +604,13 @@ export interface ManagerDashboardVan extends FleetDriverRow {
   shift_since: string | null;
   expected_cash: number | null;
   net_difference: number | null;
+  variance_status?: VarianceStatus | null;
+  draft_orders_count?: number;
 }
 
 export interface ManagerAlert {
   level: 'warning' | 'danger' | 'info';
-  kind: 'stale_shift' | 'variance' | 'no_shift';
+  kind: 'stale_shift' | 'variance' | 'no_shift' | 'draft_orders';
   driver: string;
   reference: string | null;
   title: string;
@@ -519,6 +669,10 @@ export interface PeriodShiftRow {
   total_expenses: number;
   expected_cash: number;
   net_difference: number;
+  variance_status?: VarianceStatus | null;
+  variance_tolerance?: number;
+  draft_orders_count?: number;
+  closed_by?: string | null;
 }
 
 export interface PeriodReport {

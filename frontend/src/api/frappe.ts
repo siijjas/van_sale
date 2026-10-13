@@ -17,6 +17,7 @@ import type {
   ActiveShift,
   ShiftBalanceDetail,
   ShiftClosingSummary,
+  VarianceStatus,
   PaymentReconciliationRow,
   ItemSalesHistoryRow,
   InvoiceStockCheck,
@@ -304,8 +305,11 @@ export async function getCompanyCurrencyInfo(): Promise<{ currency: string | nul
 async function getDefaultWarehouse(): Promise<string | null> {
   if (cachedDefaultWarehouse !== null) return cachedDefaultWarehouse;
   const context = await getSession().catch(() => null);
-  if (context?.driver_config?.van_warehouse) {
-    cachedDefaultWarehouse = context.driver_config.van_warehouse;
+  // Van Sales reads catalog stock from the van; Field Sales from the profile's
+  // display-only stock warehouse (if one is set).
+  const profileWarehouse = context?.driver_config?.van_warehouse || context?.driver_config?.stock_warehouse;
+  if (profileWarehouse) {
+    cachedDefaultWarehouse = profileWarehouse;
     return cachedDefaultWarehouse;
   }
   const company = await getDefaultCompany();
@@ -931,7 +935,7 @@ export async function closeShift(
   openingShift: string,
   reconciliation: PaymentReconciliationRow[],
   notes?: string,
-): Promise<{ name: string; net_difference: number }> {
+): Promise<{ name: string; net_difference: number; variance_status: VarianceStatus; variance_tolerance: number; draft_orders_count: number }> {
   await refreshCsrfToken();
   const res = await fetch('/api/method/van_sale.van_sale.shift.close_shift', {
     method: 'POST',
@@ -947,8 +951,52 @@ export async function closeShift(
   return data.message;
 }
 
-export async function getRouteExpenses(): Promise<any[]> {
-  const res = await fetch('/api/method/van_sale.van_sale.finance.get_route_expenses', {
+/** Managers only: cancel a closing so the driver's shift is open again. */
+export async function reopenShift(closingShift: string): Promise<ActiveShift> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.shift.reopen_shift', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify({ closing_shift: closingShift }),
+  });
+  const data = await handleResponse(res);
+  return data.message as ActiveShift;
+}
+
+// ─── Cash movements (expenses & deposits from the drawer) ─────────────────────
+
+export async function getCashMovementContext(): Promise<import('../types').CashMovementContext> {
+  const res = await fetch('/api/method/van_sale.van_sale.cash_movement.get_cash_movement_context', {
+    method: 'GET',
+    credentials: 'include',
+    headers: defaultHeaders(),
+  });
+  const data = await handleResponse(res);
+  return data.message;
+}
+
+export async function createCashMovement(payload: {
+  movement_type: import('../types').CashMovementType;
+  amount: number;
+  expense_account?: string;
+  against_name?: string;
+  remarks?: string;
+}): Promise<import('../types').CashMovement> {
+  await refreshCsrfToken();
+  const res = await fetch('/api/method/van_sale.van_sale.cash_movement.create_cash_movement', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await handleResponse(res);
+  return data.message;
+}
+
+export async function getShiftCashMovements(openingShift?: string): Promise<import('../types').CashMovement[]> {
+  const qs = openingShift ? `?opening_shift=${encodeURIComponent(openingShift)}` : '';
+  const res = await fetch(`/api/method/van_sale.van_sale.cash_movement.get_shift_cash_movements${qs}`, {
     method: 'GET',
     credentials: 'include',
     headers: defaultHeaders(),
@@ -957,13 +1005,13 @@ export async function getRouteExpenses(): Promise<any[]> {
   return data.message || [];
 }
 
-export async function submitRouteExpense(expenseType: string, amount: number, notes?: string): Promise<string> {
+export async function cancelCashMovement(name: string): Promise<{ name: string; docstatus: number }> {
   await refreshCsrfToken();
-  const res = await fetch('/api/method/van_sale.van_sale.finance.submit_route_expense', {
+  const res = await fetch('/api/method/van_sale.van_sale.cash_movement.cancel_cash_movement', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...defaultHeaders() },
-    body: JSON.stringify({ expense_type: expenseType, amount, notes }),
+    body: JSON.stringify({ name }),
   });
   const data = await handleResponse(res);
   return data.message;

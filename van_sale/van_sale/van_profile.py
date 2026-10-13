@@ -20,7 +20,7 @@ returns the payload consumed by the app (see _build_van_profile_payload).
 import json
 import frappe
 from van_sale.van_sale.utils import (
-	_manager_only, _coerce_list, _to_float, _coerce_check,
+	_manager_only, _coerce_list, _to_float, _coerce_check, _capabilities,
 	_default_company, _driver_cache_key, _driver_stock_cache_key,
 )
 
@@ -100,6 +100,28 @@ def get_van_profile_options():
 			limit_page_length=200,
 			order_by="full_name asc",
 		),
+		# Cash movements: drawer / back-office accounts and the expense accounts to allow.
+		"cash_accounts": frappe.get_all(
+			"Account",
+			filters={"is_group": 0, "disabled": 0, "account_type": ["in", ["Cash", "Bank"]]},
+			fields=["name", "account_name", "company", "account_type"],
+			limit_page_length=500,
+			order_by="account_name asc",
+		),
+		"expense_accounts": frappe.get_all(
+			"Account",
+			filters={"is_group": 0, "disabled": 0, "root_type": "Expense"},
+			fields=["name", "account_name", "company"],
+			limit_page_length=1000,
+			order_by="account_name asc",
+		),
+		"cost_centers": frappe.get_all(
+			"Cost Center",
+			filters={"is_group": 0, "disabled": 0},
+			fields=["name", "company"],
+			limit_page_length=200,
+			order_by="name asc",
+		),
 	}
 
 
@@ -115,9 +137,11 @@ def list_van_profiles():
 		fields=[
 			"name",
 			"profile_name",
+			"profile_type",
 			"company",
 			"source_warehouse",
 			"van_warehouse",
+			"stock_warehouse",
 			"delivery_route",
 			"default_cash_mode",
 			"selling_price_list",
@@ -129,7 +153,9 @@ def list_van_profiles():
 			"allow_rate_change",
 			"allow_discount_change",
 			"allow_sale_without_stock",
+			"use_shifts",
 			"require_open_shift",
+			"variance_tolerance",
 			"validate_stock_on_save",
 			"allow_offline_stock_dashboard",
 			"ignore_pricing_rule",
@@ -140,6 +166,12 @@ def list_van_profiles():
 			"expense_account",
 			"cost_center",
 			"write_off_account",
+			"allow_expense",
+			"allow_cash_deposit",
+			"cash_account",
+			"back_office_cash_account",
+			"cash_movement_max_amount",
+			"require_cash_movement_remarks",
 			"is_active",
 		],
 		order_by="profile_name asc",
@@ -176,10 +208,21 @@ def list_van_profiles():
 				order_by="idx asc",
 			)
 		]
+		row.allowed_expense_accounts = [
+			child.account
+			for child in frappe.get_all(
+				"Van Profile Expense Account",
+				filters={"parent": row.name},
+				fields=["account"],
+				order_by="idx asc",
+			)
+		]
 		# Coerce booleans
+		row.profile_type = row.profile_type or "Van Sales"
 		for check_field in (
-			"allow_rate_change", "allow_discount_change", "allow_sale_without_stock", "require_open_shift", "validate_stock_on_save",
+			"allow_rate_change", "allow_discount_change", "allow_sale_without_stock", "use_shifts", "require_open_shift", "validate_stock_on_save",
 			"allow_offline_stock_dashboard", "ignore_pricing_rule", "disable_rounded_total",
+			"allow_expense", "allow_cash_deposit", "require_cash_movement_remarks",
 			"is_active",
 		):
 			row[check_field] = _coerce_check(row.get(check_field))
@@ -200,9 +243,11 @@ def save_van_profile(payload):
 
 	# Scalar fields
 	doc.profile_name = data.get("profile_name")
+	doc.profile_type = data.get("profile_type") or "Van Sales"
 	doc.company = data.get("company") or _default_company()
-	doc.source_warehouse = data.get("source_warehouse")
-	doc.van_warehouse = data.get("van_warehouse")
+	doc.source_warehouse = data.get("source_warehouse") or None
+	doc.van_warehouse = data.get("van_warehouse") or None
+	doc.stock_warehouse = data.get("stock_warehouse") or None
 	doc.delivery_route = data.get("delivery_route") or None
 	doc.default_cash_mode = data.get("default_cash_mode") or None
 	doc.selling_price_list = data.get("selling_price_list") or None
@@ -214,7 +259,11 @@ def save_van_profile(payload):
 	doc.allow_rate_change = 1 if _coerce_check(data.get("allow_rate_change")) else 0
 	doc.allow_discount_change = 1 if _coerce_check(data.get("allow_discount_change")) else 0
 	doc.allow_sale_without_stock = 1 if _coerce_check(data.get("allow_sale_without_stock")) else 0
+	# Shifts default on for a van and off for field staff; an explicit value wins.
+	use_shifts_default = doc.profile_type != "Field Sales"
+	doc.use_shifts = 1 if _coerce_check(data.get("use_shifts", use_shifts_default)) else 0
 	doc.require_open_shift = 1 if _coerce_check(data.get("require_open_shift")) else 0
+	doc.variance_tolerance = _to_float(data.get("variance_tolerance"))
 	doc.validate_stock_on_save = 1 if _coerce_check(data.get("validate_stock_on_save")) else 0
 	doc.allow_offline_stock_dashboard = 1 if _coerce_check(data.get("allow_offline_stock_dashboard", True)) else 0
 	doc.ignore_pricing_rule = 1 if _coerce_check(data.get("ignore_pricing_rule")) else 0
@@ -225,6 +274,12 @@ def save_van_profile(payload):
 	doc.expense_account = data.get("expense_account") or None
 	doc.cost_center = data.get("cost_center") or None
 	doc.write_off_account = data.get("write_off_account") or None
+	doc.allow_expense = 1 if _coerce_check(data.get("allow_expense", True)) else 0
+	doc.allow_cash_deposit = 1 if _coerce_check(data.get("allow_cash_deposit", True)) else 0
+	doc.cash_account = data.get("cash_account") or None
+	doc.back_office_cash_account = data.get("back_office_cash_account") or None
+	doc.cash_movement_max_amount = _to_float(data.get("cash_movement_max_amount"))
+	doc.require_cash_movement_remarks = 1 if _coerce_check(data.get("require_cash_movement_remarks")) else 0
 	doc.is_active = 1 if _coerce_check(data.get("is_active", True)) else 0
 
 	# Assigned drivers child table
@@ -248,6 +303,12 @@ def save_van_profile(payload):
 	for group in _coerce_list(data.get("allowed_customer_groups")):
 		if isinstance(group, str) and group.strip():
 			doc.append("allowed_customer_groups", {"customer_group": group.strip()})
+
+	# Allowed expense accounts child table (Table MultiSelect)
+	doc.set("allowed_expense_accounts", [])
+	for account in _coerce_list(data.get("allowed_expense_accounts")):
+		if isinstance(account, str) and account.strip():
+			doc.append("allowed_expense_accounts", {"account": account.strip()})
 
 	if doc.is_new():
 		doc.insert()
@@ -365,12 +426,14 @@ def audit_driver_roles(repair: int = 0):
 
 def _build_van_profile_payload(doc) -> dict:
 	"""Serialize a Van Profile document to a clean dict for API responses."""
-	return {
+	payload = {
 		"name": doc.name,
 		"profile_name": doc.profile_name,
+		"profile_type": doc.profile_type or "Van Sales",
 		"company": doc.company,
 		"source_warehouse": doc.source_warehouse,
 		"van_warehouse": doc.van_warehouse,
+		"stock_warehouse": doc.stock_warehouse,
 		"delivery_route": doc.delivery_route,
 		"default_cash_mode": doc.default_cash_mode,
 		"selling_price_list": doc.selling_price_list,
@@ -382,7 +445,9 @@ def _build_van_profile_payload(doc) -> dict:
 		"allow_rate_change": _coerce_check(doc.allow_rate_change),
 		"allow_discount_change": _coerce_check(doc.allow_discount_change),
 		"allow_sale_without_stock": _coerce_check(doc.allow_sale_without_stock),
+		"use_shifts": _coerce_check(doc.use_shifts),
 		"require_open_shift": _coerce_check(doc.require_open_shift),
+		"variance_tolerance": _to_float(doc.variance_tolerance),
 		"validate_stock_on_save": _coerce_check(doc.validate_stock_on_save),
 		"allow_offline_stock_dashboard": _coerce_check(doc.allow_offline_stock_dashboard),
 		"ignore_pricing_rule": _coerce_check(doc.ignore_pricing_rule),
@@ -393,6 +458,12 @@ def _build_van_profile_payload(doc) -> dict:
 		"expense_account": doc.expense_account,
 		"cost_center": doc.cost_center,
 		"write_off_account": doc.write_off_account,
+		"allow_expense": _coerce_check(doc.allow_expense),
+		"allow_cash_deposit": _coerce_check(doc.allow_cash_deposit),
+		"cash_account": doc.cash_account,
+		"back_office_cash_account": doc.back_office_cash_account,
+		"cash_movement_max_amount": _to_float(doc.cash_movement_max_amount),
+		"require_cash_movement_remarks": _coerce_check(doc.require_cash_movement_remarks),
 		"is_active": _coerce_check(doc.is_active),
 		"assigned_drivers": [
 			{"driver_user": row.driver_user, "driver_full_name": row.driver_full_name}
@@ -408,7 +479,12 @@ def _build_van_profile_payload(doc) -> dict:
 			for row in (doc.allowed_customer_groups or [])
 			if row.customer_group
 		],
+		"allowed_expense_accounts": [
+			row.account for row in (doc.allowed_expense_accounts or []) if row.account
+		],
 	}
+	payload["capabilities"] = _capabilities(payload)
+	return payload
 
 
 def get_van_profile_for_driver(driver_user: str) -> dict | None:

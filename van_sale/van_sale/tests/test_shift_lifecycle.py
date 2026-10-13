@@ -7,7 +7,7 @@ Run with: bench run-tests --site <site> --module van_sale.van_sale.tests.test_sh
 import frappe
 from frappe.utils import add_days, now_datetime, nowdate
 
-from van_sale.van_sale.finance import submit_route_expense
+from van_sale.van_sale.cash_movement import create_cash_movement
 from van_sale.van_sale.sales import create_sales_order
 from van_sale.van_sale.shift import close_shift, get_active_shift, get_shift_closing_summary, open_shift
 from van_sale.van_sale.tests import test_shift_and_access as base
@@ -99,7 +99,7 @@ class TestShiftLifecycle(base.TestShiftAndAccessRegressions):
 		with self.assertRaisesRegex(frappe.ValidationError, "Open your shift"):
 			create_sales_order(self.customer_allowed, line)
 		with self.assertRaisesRegex(frappe.ValidationError, "Open your shift"):
-			submit_route_expense("Fuel", 5)
+			create_cash_movement("Expense", 5)
 
 		# A stale shift doesn't count: it has to be closed first.
 		stale = self._insert_opening(self.driver_user, str(add_days(nowdate(), -1)))
@@ -110,7 +110,7 @@ class TestShiftLifecycle(base.TestShiftAndAccessRegressions):
 		close_shift(opening_shift=stale, reconciliation="[]")
 		open_shift(balance_details="[]")
 		self.assertTrue(create_sales_order(self.customer_allowed, line)["name"])
-		self.assertTrue(submit_route_expense("Fuel", 5))
+		self.assertTrue(create_cash_movement("Expense", 5)["journal_entry"])
 
 	def test_selling_is_unrestricted_when_the_setting_is_off(self):
 		self._set_require_open_shift(0)

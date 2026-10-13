@@ -11,6 +11,7 @@ from van_sale.van_sale.utils import (
 	_validate_customer_access,
 	_is_manager,
 	_get_driver_config,
+	_require_capability,
 )
 
 
@@ -751,6 +752,7 @@ def deliver_pending_items(sales_order: str):
 	delivered rows and again delivers only what the van actually holds.
 	"""
 	_require_van_user()
+	_require_capability("can_deliver", "deliver orders")
 	so = frappe.get_doc("Sales Order", sales_order)
 	if not _is_manager() and so.owner != frappe.session.user:
 		frappe.throw("You can only deliver your own sales orders.", frappe.PermissionError)
@@ -790,6 +792,7 @@ def get_invoice_stock_shortages(sales_order: str):
 	moving stock.
 	"""
 	_require_van_user()
+	_require_capability("can_invoice", "invoice orders")
 	so = _get_invoiceable_order(sales_order)
 	config = _get_driver_config(required=False) or {}
 	return {
@@ -819,6 +822,7 @@ def create_sales_invoice(
 	delivery against the order until stock arrives.
 	"""
 	_require_van_user()
+	_require_capability("can_invoice", "invoice orders")
 	require_open_shift("invoice an order")
 	mark_as_paid = _coerce_check(mark_as_paid)
 	allow_without_stock = _coerce_check(allow_without_stock)
@@ -931,6 +935,7 @@ def create_sales_invoice(
 @frappe.whitelist()
 def create_sales_return(customer: str, items):
 	_require_van_user()
+	_require_capability("can_return", "take returns")
 	require_open_shift("take a return")
 	_validate_customer_access(customer)
 

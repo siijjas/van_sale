@@ -2,17 +2,27 @@
 
 ## 1. App Overview
 
-**Van Sale** is a mobile-first Progressive Web App (PWA) that gives field sales drivers a unified workspace to create orders, collect payments, manage van stock, process returns, log expenses, and close their day — all powered by a Frappe/ERPNext backend. It replaces fragmented desktop workflows with a touch-optimized, offline-aware interface designed for use on delivery routes.
+**Van Sale** is a mobile-first Progressive Web App (PWA) for ERPNext field sales. It serves two kinds of staff from one app, chosen per Van Profile:
+
+- **Van Sales** — drivers who carry stock: take orders, invoice and deliver on the spot, take returns, load the van, collect payments, and run a cash shift with an opening float, expenses and deposits out of the drawer, and a counted-cash closing.
+- **Field Sales** — order takers with no van: take orders and collect payments, see read-only stock from a chosen warehouse, and leave invoicing, delivery and returns to the back office. Shifts are optional for them.
+
+Everything is backed by standard ERPNext documents (Sales Order, Sales Invoice, Payment Entry, Stock Entry, Journal Entry). The app adds its own documents only for configuration (Van Profile), shifts (Van Shift Opening / Closing) and drawer cash movements (Van Cash Movement). ERPNext documents are never stamped with a shift: shift totals are attributed by driver and creation time inside the shift's window.
 
 ---
 
 ## 2. Core Features
 
-- **Field Order Entry** — Select a customer, browse a price-list-aware catalog, build a cart with editable rates, and submit Sales Orders directly into ERPNext.
+- **Profile types** — Each Van Profile is Van Sales or Field Sales. The type drives a capability set (`can_invoice`, `can_deliver`, `can_return`, `can_load_stock`, `can_view_stock`, `uses_shifts`, `requires_open_shift`) that gates screens in the app and is enforced again on every endpoint.
+- **Field Order Entry** — Select a customer, browse a price-list-aware catalog with stock from the van (or the Field Sales stock warehouse, read-only), build a cart with editable rates and discounts, and submit Sales Orders into ERPNext.
 - **Payment Collection & Allocation** — Collect receivables with Auto-FIFO, Manual, or Advance allocation against outstanding Sales Invoices or Sales Orders.
-- **Van Stock Management** — Real-time stock dashboard for the driver's assigned van warehouse with low-stock alerts, plus a guided Material Transfer flow from the source warehouse.
-- **Sales Returns** — Select items previously sold to a customer, review return quantities, and issue credit via a backend Credit Note.
-- **End-of-Day Reconciliation** — Auto-generated financial summary (sales, collections, expenses) with declared-cash-vs-expected variance tracking, submitted as a Van EOD Report.
+- **Van Stock Management** (Van Sales) — Real-time stock dashboard for the van warehouse with low-stock alerts, plus a guided Material Transfer from the source warehouse.
+- **Invoicing, delivery and returns** (Van Sales) — Invoice an order from the van, deliver pending items later, and issue Credit Notes for returns.
+- **Shifts** (POS Awesome style) — Open a shift with a per-mode cash float; record expenses and cash deposits to the office from the drawer, each posted as a Journal Entry; close the shift by counting each payment mode against the expected amount. The closing stores sales, net, taxes, quantity, returns, collections, expenses, deposits, expected cash and the per-mode reconciliation, plus a frozen list of every document it summed.
+- **Variance tolerance** — A per-profile tolerance flags a closing as Balanced, Within Tolerance or Exceeds Tolerance. It never blocks a closing; managers see flagged closings on the dashboard and in reports.
+- **Shift reports** — A live Shift Summary while the shift is open and a final Closing Report once closed, in the app and as print formats.
+- **Manager tools** — Fleet dashboard for today (shift status per staff member, cash on open shifts, alerts for stale shifts, variances, drafts left at close and trading without a shift), period reports with comparison to the previous period, closing any driver's shift, and reopening a closed shift.
+- **Stale-shift job** — A daily scheduled task notifies managers of shifts still open from earlier days.
 
 ---
 
@@ -20,11 +30,14 @@
 
 | # | Persona | Story |
 |---|---------|-------|
-| 1 | **Driver** | *As a van driver, I want to browse my catalog filtered by the customer's price list and instantly see van stock levels so I can place accurate orders on-site without calling the office.* |
-| 2 | **Driver** | *As a driver collecting a cheque, I want to allocate the payment against the customer's oldest invoices (FIFO) or manually pick specific invoices, so the customer's ledger is updated in real-time.* |
-| 3 | **Driver** | *As a driver returning unsold goods, I want to select items and quantities so a Credit Note is created and the customer's outstanding balance is reduced automatically.* |
-| 4 | **Sales Manager** | *As a sales manager, I want to create and configure driver profiles (warehouse mapping, payment modes, credit limits) from a single settings screen, so onboarding a new driver takes minutes.* |
-| 5 | **Driver** | *As a driver ending my shift, I want to declare my cash on hand and see any variance against expected collections, so discrepancies are documented before I return to the depot.* |
+| 1 | **Van driver** | *As a van driver, I want to browse my catalog filtered by the customer's price list and instantly see van stock levels so I can place accurate orders on-site without calling the office.* |
+| 2 | **Field sales rep** | *As a field rep without a van, I want to take orders and collect payments and see what the warehouse has, without being offered invoicing or delivery actions I am not allowed to do.* |
+| 3 | **Driver** | *As a driver collecting a cheque, I want to allocate the payment against the customer's oldest invoices (FIFO) or manually pick specific invoices, so the customer's ledger is updated in real-time.* |
+| 4 | **Van driver** | *As a driver returning unsold goods, I want to select items and quantities so a Credit Note is created and the customer's outstanding balance is reduced automatically.* |
+| 5 | **Van driver** | *As a driver paying for fuel or handing cash to the office mid-route, I want to record it from the app so my expected cash at closing is right and the accounts are posted without a cashier re-keying it.* |
+| 6 | **Driver** | *As a driver ending my shift, I want to count each payment mode against what is expected, see whether I am within tolerance, and see any draft orders I forgot to submit, before the shift closes.* |
+| 7 | **Sales Manager** | *As a sales manager, I want to configure each profile (type, warehouses, payment modes, cash accounts, expense rules, variance tolerance) from one screen, so onboarding a new staff member takes minutes.* |
+| 8 | **Sales Manager** | *As a sales manager, I want to see at a glance who is on shift, how much cash each van holds, which closings were off by more than I tolerate, and which shifts were never closed, and to close or reopen a shift myself when needed.* |
 
 ---
 
@@ -33,8 +46,8 @@
 | Role | Access Level |
 |------|-------------|
 | **System Manager** | Full admin — CRUD on all doctypes, all API endpoints, can delete records. |
-| **Sales Manager** | Operations manager — manage driver profiles, view all reports, approve stock loads. Cannot delete. |
-| **Van Sales Driver** | Field-only — create orders, collect payments, log expenses. Row-level data isolation (own data only). |
+| **Sales Manager** | Operations manager — manage Van Profiles, view all reports, close and reopen any shift, cancel cash movements. Cannot delete. |
+| **Van Sales Driver** | Field staff (both profile types) — the role is assigned automatically to users on an active Van Profile. Holds read-only DocPerms on Sales Order and on all van_sale documents; every write goes through a whitelisted endpoint that authorizes the caller (own data, own open shift, profile rules) and then bypasses DocPerms. Row-level isolation: own data only. |
 
 ---
 
@@ -57,10 +70,10 @@
 
 | Aspect | Detail |
 |--------|--------|
-| **Purpose** | Central hub showing today's KPIs and providing one-tap access to every workflow. |
-| **Key Elements** | Setup warning banner (if no driver profile) · **Quick Actions grid** (New Order, Payment, Load Stock, End of Day, Return, Expense — 6 icon buttons) · **Today's Performance** cards (Sales count/total, Collections count/total) · **Recent Activity** list (last N orders with customer name, amount, status badge) |
-| **Functionality** | On mount: parallel fetch `recentOrders()` + `getDailySummary()`. Performance cards are tappable — navigate to Daily Log (orders/payments). Recent order rows navigate to Order Detail. Quick Action buttons route through Customer Select with a `redirect` query param to control downstream flow. Stock/Settings buttons are conditionally shown based on `driverConfig` / `isManager`. |
-| **Navigation** | → Customer Select (New Order / Payment / Return) · → Stock Transfer · → EOD Reconciliation · → Expense Log · → Order Detail · → Daily Log (orders or payments) |
+| **Purpose** | Central hub showing today's KPIs, the state of the shift, and one-tap access to every workflow the profile allows. |
+| **Key Elements** | Setup warning banner (if no profile) · Shift notice (unclosed shift from an earlier day, or "open your shift" when the profile requires one) · **Quick Actions grid** gated by capabilities (New Order, Payment, Ledger; Load Stock / Return for Van Sales; Open Shift / Close Shift, Cash Out, Shift Reports when the profile uses shifts) · **This shift so far** tiles on an open shift (sales, collected, cash in hand, pending drafts) · **Today's Performance** cards · **Recent Activity** list · Manager dashboard for managers (see 5.21) |
+| **Functionality** | On mount: parallel fetch `recentOrders()`, `getDailySummary()` and, when the profile uses shifts, `getActiveShift()`; then `getShiftSummary()` for an open, non-stale shift. Actions that need a shift send the driver to open or close one first. |
+| **Navigation** | → Customer Select (New Order / Payment / Return / Ledger) · → Stock Transfer · → Shift Open / Close · → Expenses & Deposits · → Shift Reports · → Order Detail · → Daily Log |
 
 ---
 
@@ -220,69 +233,86 @@
 
 ---
 
-### 5.16 Expense Log
-**Route:** `/expenses`
+### 5.16 Expenses & Deposits (Cash Movements)
+**Route:** `/expenses` (profile must use shifts)
 
 | Aspect | Detail |
 |--------|--------|
-| **Purpose** | Log out-of-pocket expenses (fuel, tolls, meals, etc.) incurred during the route. |
-| **Key Elements** | **Log New Expense form**: Expense Type dropdown (Fuel, Tolls, Meals, Vehicle Maintenance, Miscellaneous), Amount input with currency prefix, Notes textarea, Submit button · **Today's Log** list: expense cards (type, ID, amount, notes) · Empty state · Error banner |
-| **Functionality** | Form validates type + amount > 0. Submit calls `submitRouteExpense(type, amount, notes)` then reloads today's expenses via `getRouteExpenses()`. Creates a `Van Expense Log` DocType record. |
-| **Navigation** | ← Dashboard |
+| **Purpose** | Record cash leaving the drawer during an open shift: an **Expense** (fuel, tolls, a repair) or a **Deposit** of cash to the office. Each posts a Journal Entry. |
+| **Key Elements** | "No open shift" state with an Open Shift button · Expense / Deposit segmented control (per profile flags) · Amount (with the profile's max per movement) · Expense account select (restricted to the profile's allowed accounts, defaulting to its default expense account) · Paid to / Deposited with · Remarks (required if the profile says so) · Source → target account preview · This-shift list with KPI tiles (expenses, deposited), Journal Entry numbers, and a manager-only Cancel |
+| **Functionality** | `getCashMovementContext()` returns the rules, accounts and this shift's movements. `createCashMovement()` requires the caller's own open shift, validates the profile rules server-side (`Van Cash Movement.validate`), freezes the accounts on the document and posts the Journal Entry on submit: Expense = debit expense account / credit drawer; Deposit = debit back-office cash account / credit drawer. The drawer account is the profile's Cash Drawer Account, else the Default Cash Mode's account for the company, else the company default cash account. `cancelCashMovement()` (managers) reverses the Journal Entry, only while the shift is still open. |
+| **Navigation** | → Shift Open (if none) · ← Dashboard |
 
 ---
 
-### 5.17 EOD Reconciliation
-**Route:** `/eod`
+### 5.17 Shift Open
+**Route:** `/shift/open` (profile must use shifts)
 
 | Aspect | Detail |
 |--------|--------|
-| **Purpose** | Close the day's shift by reconciling expected vs. actual cash and generating an End-of-Day report. |
-| **Key Elements** | **Summary grid**: Total Sales card (amount + order/invoice counts), Expected Cash card (amount + payment count) · Declared Cash input with currency prefix · **Cash Variance** indicator (green = overage, red = shortage, with explanation text) · Notes textarea · **Submit EOD Report** button · Cancel button · Error banner |
-| **Functionality** | On mount: calls `getEodSummary()` which returns `{ total_sales, expected_cash_collection, sales_orders_count, invoices_count, payments_count }`. Declared cash defaults to expected. Variance = declared − expected. Submit calls `submitEodReport(declaredCash, notes)` which creates a `Van EOD Report` DocType. |
-| **Navigation** | → Dashboard (on success or cancel) |
+| **Purpose** | Start the shift with an opening cash float per payment mode. |
+| **Functionality** | `openShift(balance_details, notes)` creates and submits a **Van Shift Opening** with `period_start = now`. Refused while the driver has any open shift, including one from an earlier day ("stale"), which must be closed first. Only the profile's allowed payment modes are accepted. |
 
 ---
 
-### 5.18 Settings (Manager Only)
-**Route:** `/settings` (requires manager role)
+### 5.18 Shift Close
+**Route:** `/shift/close` (`?opening=` lets a manager close a specific driver's shift)
 
 | Aspect | Detail |
 |--------|--------|
-| **Purpose** | Centralized admin panel for driver profile CRUD and RBAC documentation. |
-| **Key Elements** | **Page header** with "Restricted" badge · **Category navigation** (mobile: horizontal pills; desktop: left sidebar) with two sections: *Driver Profiles* and *Roles & Access* |
+| **Purpose** | Reconcile each payment mode and close the shift. |
+| **Key Elements** | Stale / closing-on-behalf banner · **Draft orders** warning listing unsubmitted orders made during the shift (links to each) · **Activity before this shift opened** notice (orders / payments on the shift's date created before it opened and claimed by no closing) · KPI tiles (sales with units and tax, collections, opening float, expected cash, expenses, deposits) · Per-mode reconciliation (opening, expected, counted input, difference) · Net variance panel with the tolerance status (Balanced / Within Tolerance / Exceeds Tolerance) · Notes · Sticky Close Shift |
+| **Functionality** | `getShiftClosingSummary()` recomputes everything server-side for the shift's window (driver + creation between `period_start` and now): submitted Sales Orders (sales, net, taxes, quantity), Sales Invoices (invoiced / returns), receive Payment Entries (collections per mode), Van Cash Movements linked to the shift (expenses, deposits) and legacy Van Expense Logs by date. Records already summed by another submitted closing are excluded. Expenses and deposits are deducted from the cash mode's expected amount. `closeShift()` stores all totals, the taxes table, the per-mode reconciliation, the variance tolerance and status, the number of drafts left, the frozen `transactions` list and `period_end`, then marks the opening Closed and links it to the closing. A stale shift closes as the day it was opened. Nothing blocks a close: variances and drafts are flagged only. |
+| **Navigation** | → Closing Report (on success) · ← Back |
 
-#### Driver Profiles Tab
-| Element | Detail |
+---
+
+### 5.19 Shift Reports
+**Routes:** `/shift/reports` (list) · `/shift/summary` (open shift, `?opening=` for managers) · `/shift/closing-report/:name`
+
+| Aspect | Detail |
+|--------|--------|
+| **Purpose** | The **Shift Summary** is a read-only live snapshot of an open shift (it never closes it). The **Closing Report** is the final report of a closed shift, read from the Van Shift Closing so it reprints identically. |
+| **Key Elements** | Header (driver, van, opened, closed / as of, closed by) · KPI tiles · Variance panel with status and tolerance · Sales breakdown (orders, net before tax with units, taxes, invoices, returns, net invoiced) · Taxes on orders by account and rate · Collections by mode · Cash reconciliation · Expenses and deposits with Journal Entry numbers · Items sold / returned · Draft orders (summary) or drafts-left note (closing) · Notes · Print (PDF via the "Van Shift Summary" / "Van Shift Closing Report" print formats) · **Reopen shift** (managers, closing report) |
+| **Functionality** | `getShiftSummary()`, `getClosingReport()`, `getShiftClosings()`; `reopenShift(closing)` cancels the closing, puts the opening back to Open with no end time, and is refused while the driver has another open shift. The shift then continues until closed again; the new closing spans from the original opening to the new close. Drivers see only their own shifts; managers see all. |
+
+---
+
+### 5.20 Settings → Van Profiles (Manager Only)
+**Routes:** `/settings`, `/van-profiles` (requires manager role)
+
+| Section | Detail |
 |---------|--------|
-| Stats banner | Profile count, Active count, Payment Modes count |
-| Profile Directory sidebar | Search input, profile cards (driver name, company, status badge, Main WH, Van WH), "+ New" button |
-| Profile Form | Sectioned editor with sub-navigation (Identity / Warehouses / Payments / Controls) |
-| Identity section | Driver User dropdown, Company dropdown, Delivery Route (Territory) dropdown |
-| Warehouses section | Main Warehouse dropdown (filtered by company), Van Warehouse dropdown |
-| Payments section | Payment mode toggle cards with selection count |
-| Controls section | Daily Credit Limit input, Low Stock Threshold input, Allow Offline Stock Dashboard checkbox, Active checkbox |
-| Save bar | Dark footer with "Save Profile" button — calls `saveDriverConfiguration()` |
+| Identity | Profile name, **Profile type** (Van Sales / Field Sales), company, delivery route (Territory), active flag |
+| Warehouses | Van Sales: source warehouse and van warehouse (required, different). Field Sales: an optional read-only stock warehouse |
+| Drivers / customers / payments | Assigned staff (role is synced automatically), allowed customer groups, allowed payment modes, default cash mode |
+| Operational controls | Daily credit limit, low stock threshold, rate / discount changes, selling without van stock, **Use shifts**, **Require open shift**, **Variance tolerance**, strict stock validation, offline stock dashboard, pricing rules |
+| Cash movements | Allow expenses, allow deposits, cash drawer account, back office cash account, max amount per movement, require remarks, allowed expense accounts, default expense account, cost center |
+| Pricing, print, accounting | Price list, currency, taxes template, discount basis, print format, letter head, income / expense / write-off accounts |
 
-#### Roles & Access Tab
-| Element | Detail |
-|---------|--------|
-| Role cards | System Manager, Sales Manager, Van Sales Driver — with descriptions |
-| Permission Matrix table | 12-row table showing permissions per role (✅/❌/🔐) |
-| How-to guide | Step-by-step instructions for assigning the Van Sales Driver role |
-
-| **Navigation** | Self-contained. Category and section switches are in-page. |
+Saving goes through `saveVanProfile()`; the profile controller validates the type-specific rules and clears the driver config cache.
 
 ---
 
-### 5.19 App Shell (Global Navigation)
+### 5.21 Manager Dashboard & Period Reports (Manager Only)
+**Routes:** `/` (dashboard component) · `/reports`
+
+| Aspect | Detail |
+|--------|--------|
+| **Dashboard** | Today across the fleet: open / closed shift counts, cash on open shifts, one card per staff member (shift status: open, closed, stale, none / "No shifts" for profiles without them; sales, collected, cash in hand or variance with its tolerance status, drafts left) with Close Shift, and an **alerts** list: stale shifts (with a close link), variances beyond tolerance, drafts left at close, trading without an open shift. |
+| **Period reports** | Any date range, optionally one driver or profile, compared with the preceding period of the same length: totals and comparison rows (sales, orders, returns, collections, expenses, deposits, net cash, variance), daily trend, per-driver split (incl. flagged shifts and drafts), items and item groups, customers, collections by mode, expenses by account, and the closed shifts of the period with their variance status. |
+| **Functionality** | `getManagerDashboard()`, `getPeriodReport()`, `getFleet()`. Attribution is by the user who created each document, the same rule the closing uses. |
+
+---
+
+### 5.22 App Shell (Global Navigation)
 **Component:** `AppShell.vue` (wraps all authenticated views)
 
 | Aspect | Detail |
 |--------|--------|
 | **Purpose** | Persistent navigation frame — top header + bottom tab bar (mobile) / left rail (desktop). |
-| **Key Elements** | **Header**: "Van Sales" title, van warehouse / user name subtitle, online status indicator · **Nav tabs**: Home (Dashboard), Activity (History/Orders/Payments), Stock (if driver config exists), Ledger (if no driver config and not manager), Settings (if manager) · Logout button (pushed to bottom on desktop) |
-| **Functionality** | Active tab highlighting based on current route name. Conditional tabs based on `driverConfig` and `isManager` from Pinia store. Logout clears session and redirects to Login. |
+| **Key Elements** | **Header**: "Van Sales" or "Field Sales" title by profile type, warehouse / user subtitle, online indicator · **Nav tabs**: Home, Activity, Stock (only with `can_view_stock`), Ledger, Settings (managers) · Logout |
+| **Functionality** | Tabs and quick actions are gated by the session's `capabilities`; the router redirects a driver away from any route whose `meta.capability` their profile lacks. |
 
 ---
 
@@ -296,8 +326,10 @@ graph TD
     Dashboard --> CS_Payment["Customer Select<br/>(redirect=payment)"]
     Dashboard --> CS_Return["Customer Select<br/>(redirect=return)"]
     Dashboard --> StockTransfer["Stock Transfer"]
-    Dashboard --> EOD["EOD Reconciliation"]
-    Dashboard --> Expenses["Expense Log"]
+    Dashboard --> ShiftOpen["Shift Open"]
+    Dashboard --> ShiftClose["Shift Close"]
+    Dashboard --> CashMovements["Expenses & Deposits"]
+    Dashboard --> ShiftReports["Shift Reports"]
     Dashboard --> DailyLog["Daily Log"]
 
     CS_Order --> Catalog["Item Catalog"]
@@ -313,16 +345,28 @@ graph TD
     DailyLog --> OrderDetail
     DailyLog --> PaymentDetail["Payment Detail"]
 
-    OrderDetail --> Cart
-    OrderDetail --> Catalog
+    ShiftClose --> ClosingReport["Closing Report"]
+    ShiftReports --> ShiftSummary["Shift Summary"]
+    ShiftReports --> ClosingReport
+    ClosingReport -. manager reopen .-> ShiftSummary
 
     subgraph Manager Only
-        Settings["Settings"]
+        Settings["Settings / Van Profiles"]
+        ManagerDashboard["Manager Dashboard"]
+        Reports["Period Reports"]
     end
 
-    subgraph Driver Config Required
+    subgraph Van Sales only
         StockDashboard["Stock Dashboard"]
         StockTransfer
+        CS_Return
+    end
+
+    subgraph Profile uses shifts
+        ShiftOpen
+        ShiftClose
+        CashMovements
+        ShiftReports
     end
 ```
 
@@ -332,24 +376,29 @@ graph TD
 
 | DocType | Purpose |
 |---------|---------|
-| `Driver Configuration` | Per-driver profile: user, company, warehouses, payment modes, thresholds, active flag |
-| `Van Profile` | Reusable configuration template (modeled after POS Profile) that can be linked to multiple drivers |
-| `Van Profile Driver` | Child table linking drivers to a Van Profile |
-| `Van Profile Payment Mode` | Child table for allowed payment modes on a Van Profile |
-| `Driver Allowed Payment Mode` | Child table for payment modes on a Driver Configuration |
-| `Van Expense Log` | Individual expense entries logged by drivers |
-| `Van EOD Report` | End-of-day reconciliation record with declared cash and variance |
+| `Van Profile` | Configuration per van or field team (modeled after POS Profile): profile type, warehouses, staff, customer groups, payment modes, controls, shift and cash movement settings, pricing and accounting defaults |
+| `Van Profile Driver` / `Van Profile Payment Mode` / `Van Profile Customer Group` / `Van Profile Expense Account` | Child tables of Van Profile |
+| `Van Shift Opening` | A shift: driver, date, status, `period_start`, opening float per mode (`Van Shift Balance Detail`), and once closed `period_end` and `closing_shift` |
+| `Van Shift Closing` | The closing: totals (sales, net, taxes, quantity, returns, collections, expenses, deposits, opening float, expected cash, net difference), variance tolerance and status, drafts left, `Van Shift Closing Tax` rows, `Van Shift Payment Reconciliation` rows, and `Van Shift Transaction` references to every document summed |
+| `Van Cash Movement` | Expense or Deposit out of the drawer on an open shift, with frozen source / target accounts and the Journal Entry it posted |
+| `Van Expense Log` | Legacy expense entries without accounting; read-only for drivers, still counted in history |
+| `Van EOD Report` | Legacy end-of-day record, superseded by shifts |
 
 ---
 
-## 8. Backend API Modules
+## 8. Backend API Modules (`van_sale/van_sale/`)
 
 | Module | Responsibility |
 |--------|---------------|
-| `sales.py` | Sales Order CRUD, daily summary, daily log |
-| `finance.py` | Payment Entry creation, outstanding invoices, customer summary/ledger, payment modes |
-| `inventory.py` | Stock dashboard, stock transfer, transfer item search/detail |
-| `driver.py` | Driver configuration CRUD, setup options |
-| `van_profile.py` | Van Profile CRUD and options |
-| `utils.py` | Session bootstrap, customer search, item listing, expense/EOD operations |
+| `sales.py` | Sales Order CRUD, invoicing, delivery of pending items, returns, daily summary and log |
+| `finance.py` | Payment Entry creation, outstanding invoices, customer summary / ledger, payment modes |
+| `inventory.py` | Stock dashboard, stock transfer, transfer item search / detail |
+| `shift.py` | Open / close / reopen shifts, closing summary, window aggregation (`_compute_closing`), `require_open_shift` |
+| `shift_report.py` | Shift summary and closing report builders, closings list, print format data |
+| `cash_movement.py` | Cash movement context, create, list, manager cancel |
+| `manager_report.py` | Manager dashboard and period reports |
+| `tasks.py` | Scheduled jobs: daily stale-shift notification to managers |
+| `van_profile.py` | Van Profile CRUD, options and the per-driver config payload |
+| `driver.py` | App context (session, driver config, capabilities), setup options |
+| `utils.py` | Authorization helpers (`_require_van_user`, `_require_capability`, customer access), capability model, driver config cache |
 | `setup.py` | App installation hooks (role creation, permissions) |

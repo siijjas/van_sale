@@ -28,13 +28,13 @@
               <div class="min-w-0">
                 <p class="font-semibold text-foreground">{{ formatDate(c.shift_date) }}</p>
                 <p class="mt-0.5 truncate text-xs text-muted">
-                  {{ store.isManager ? `${c.driver_name || c.driver} · ` : '' }}{{ formatTime(c.period_start) }} – {{ formatTime(c.period_end) }}
+                  {{ store.isManager ? `${c.driver_name || c.driver} · ` : '' }}{{ formatTime(c.period_start) }} – {{ formatTime(c.period_end) }}{{ c.closed_by ? ' · closed by manager' : '' }}{{ c.draft_orders_count ? ` · ${c.draft_orders_count} draft${c.draft_orders_count === 1 ? '' : 's'} left` : '' }}
                 </p>
               </div>
               <div class="text-right">
                 <p class="tnum text-sm font-bold text-foreground">{{ currency }} {{ fmt(c.total_sales) }}</p>
-                <p v-if="c.net_difference" class="tnum text-xs font-semibold" :class="c.net_difference > 0 ? 'text-success' : 'text-danger'">
-                  {{ c.net_difference > 0 ? '+' : '−' }}{{ fmt(Math.abs(c.net_difference)) }} variance
+                <p v-if="c.net_difference" class="tnum text-xs font-semibold" :class="c.variance_status === 'Within Tolerance' ? 'text-warning' : c.net_difference > 0 ? 'text-success' : 'text-danger'">
+                  {{ c.net_difference > 0 ? '+' : '−' }}{{ fmt(Math.abs(c.net_difference)) }} {{ c.variance_status === 'Within Tolerance' ? 'within tolerance' : 'variance' }}
                 </p>
                 <p v-else class="text-xs text-muted">Balanced</p>
               </div>

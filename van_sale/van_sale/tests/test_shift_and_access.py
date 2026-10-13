@@ -77,6 +77,22 @@ class TestShiftAndAccessRegressions(FrappeTestCase):
 				{"doctype": "Mode of Payment", "mode_of_payment": cls.cash_mode, "type": "Cash", "enabled": 1}
 			).insert(ignore_permissions=True)
 
+		# Accounts for cash movements: the drawer (a Cash account), a separate back-office
+		# cash account for deposits, and any expense account of the company.
+		cls.cash_account = cls._get_or_create_cash_account(f"{TEST_PREFIX} Drawer")
+		cls.ho_cash_account = cls._get_or_create_cash_account(f"{TEST_PREFIX} HO Cash")
+		# The cash mode pays into the drawer account, so Payment Entries can be made
+		# with it (make_receive_payment_entry needs a Mode of Payment Account).
+		if not frappe.db.exists("Mode of Payment Account", {"parent": cls.cash_mode, "company": cls.company}):
+			mode = frappe.get_doc("Mode of Payment", cls.cash_mode)
+			mode.append("accounts", {"company": cls.company, "default_account": cls.cash_account})
+			mode.save(ignore_permissions=True)
+		cls.expense_account = frappe.db.get_value(
+			"Account", {"company": cls.company, "root_type": "Expense", "is_group": 0, "disabled": 0}, "name"
+		)
+		if not cls.expense_account:
+			raise unittest.SkipTest("No expense account on this company")
+
 		# Two customer groups so we can test the allowed_customer_groups restriction.
 		cls.group_allowed = cls._get_or_create_customer_group(f"{TEST_PREFIX} Allowed", customer_group_root)
 		cls.group_denied = cls._get_or_create_customer_group(f"{TEST_PREFIX} Denied", customer_group_root)
@@ -126,6 +142,9 @@ class TestShiftAndAccessRegressions(FrappeTestCase):
 				"source_warehouse": cls.source_warehouse,
 				"van_warehouse": cls.van_warehouse,
 				"default_cash_mode": cls.cash_mode,
+				"cash_account": cls.cash_account,
+				"back_office_cash_account": cls.ho_cash_account,
+				"expense_account": cls.expense_account,
 				"assigned_drivers": [{"driver_user": cls.driver_user}],
 				"allowed_payment_modes": [{"mode_of_payment": cls.cash_mode}],
 				"allowed_customer_groups": [{"customer_group": cls.group_allowed}],
@@ -139,6 +158,28 @@ class TestShiftAndAccessRegressions(FrappeTestCase):
 			return existing
 		doc = frappe.get_doc(
 			{"doctype": "Warehouse", "warehouse_name": warehouse_name, "company": cls.company}
+		).insert(ignore_permissions=True)
+		return doc.name
+
+	@classmethod
+	def _get_or_create_cash_account(cls, account_name: str) -> str:
+		existing = frappe.db.get_value("Account", {"account_name": account_name, "company": cls.company}, "name")
+		if existing:
+			return existing
+		parent = frappe.db.get_value(
+			"Account", {"company": cls.company, "account_type": "Cash", "is_group": 0}, "parent_account"
+		) or frappe.db.get_value("Account", {"company": cls.company, "root_type": "Asset", "is_group": 1}, "name")
+		if not parent:
+			raise unittest.SkipTest("No asset account group on this company")
+		doc = frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": account_name,
+				"parent_account": parent,
+				"company": cls.company,
+				"account_type": "Cash",
+				"is_group": 0,
+			}
 		).insert(ignore_permissions=True)
 		return doc.name
 
@@ -209,10 +250,15 @@ class TestShiftAndAccessRegressions(FrappeTestCase):
 			_validate_customer_access(self.customer_denied)
 
 	def test_driver_can_run_full_shift_and_sales_cycle(self):
-		"""End-to-end: place + submit a Sales Order, open a shift, close it,
+		"""End-to-end: open a shift, place + submit a Sales Order, close the shift,
 		and verify the closing correctly reflects both — the same sequence a
-		real driver's PWA session performs."""
-		today = nowdate()
+		real driver's PWA session performs. (The order is placed after opening:
+		a closing sums what was created inside the shift's window.)"""
+		# Regressions #2/#3: shift docs had "submit" but not "write" (and the
+		# has_permission hook denied "write" outright) — doc.submit() calls
+		# save() internally, which always checks "write" first.
+		opening = open_shift(balance_details="[]", notes=None)
+		self.assertEqual(opening["status"], "Open")
 
 		# Built through the real endpoint: Sales Order writes no longer go through
 		# the DocPerm layer, so a direct .insert() as a driver is refused by design.
@@ -222,12 +268,6 @@ class TestShiftAndAccessRegressions(FrappeTestCase):
 		submit_sales_order(so.name)
 		so.reload()
 		self.assertEqual(so.docstatus, 1)
-
-		# Regressions #2/#3: shift docs had "submit" but not "write" (and the
-		# has_permission hook denied "write" outright) — doc.submit() calls
-		# save() internally, which always checks "write" first.
-		opening = open_shift(balance_details="[]", notes=None)
-		self.assertEqual(opening["status"], "Open")
 
 		closing = close_shift(opening_shift=opening["name"], reconciliation="[]", notes=None)
 		closing_doc = frappe.get_doc("Van Shift Closing", closing["name"])

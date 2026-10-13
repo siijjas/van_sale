@@ -35,6 +35,19 @@
 
       <QuickActions :actions="actions" />
 
+      <!-- This shift so far (open, non-stale shift only) -->
+      <section v-if="shiftSummary">
+        <div class="mb-3 flex items-center justify-between">
+          <p class="text-xs font-bold uppercase tracking-wider text-muted">This shift so far</p>
+          <button class="text-xs font-semibold text-primary" @click="router.push({ name: 'shift-summary' })">Full summary</button>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <KpiTile label="Sales" :value="`${currency} ${fmt(shiftSummary.totals.total_sales)}`" :sub="`${shiftSummary.totals.sales_orders_count} orders`" icon="cart" tone="primary" />
+          <KpiTile label="Collected" :value="`${currency} ${fmt(shiftSummary.totals.total_collections)}`" :sub="`${shiftSummary.totals.payments_count} payments`" icon="wallet" tone="success" />
+          <KpiTile label="Cash in hand" :value="`${currency} ${fmt(shiftSummary.totals.expected_cash)}`" :sub="shiftSummary.draft_orders.length ? `${shiftSummary.draft_orders.length} draft${shiftSummary.draft_orders.length === 1 ? '' : 's'} pending` : `Float ${currency} ${fmt(shiftSummary.totals.total_opening_float)}`" icon="banknote" tone="info" />
+        </div>
+      </section>
+
       <!-- Today's performance -->
       <section>
         <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Today's performance</p>
@@ -98,7 +111,7 @@ import { onMounted, ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionStore } from '../stores/session';
 import * as api from '../api/frappe';
-import type { SalesOrder, ActiveShift } from '../types';
+import type { SalesOrder, ActiveShift, ShiftReport } from '../types';
 import WorkspacePage from '../components/WorkspacePage.vue';
 import ManagerDashboard from '../components/ManagerDashboard.vue';
 import QuickActions, { type QuickAction } from '../components/QuickActions.vue';
@@ -130,7 +143,8 @@ const setupMessage = computed(() => {
 // A shift left open from an earlier day has to be closed first; with the Van Profile's
 // require_open_shift, selling also waits for today's shift. The server enforces the
 // same rule (shift.require_open_shift) — this just gets the driver there sooner.
-const requireShift = computed(() => !!driverConfig.value?.require_open_shift);
+const caps = computed(() => store.capabilities);
+const requireShift = computed(() => caps.value.requires_open_shift);
 const needsShift = computed(() => requireShift.value && (!activeShift.value || !!activeShift.value.is_stale));
 const shiftNotice = computed(() => {
   if (loading.value) return null;
@@ -157,19 +171,25 @@ const actions = computed(() => {
     { label: 'New Order', icon: 'cart', accent: 'bg-primary/12 text-primary', go: gated(() => router.push({ name: 'customers', query: { redirect: 'order' } })) },
     { label: 'Payment', icon: 'wallet', accent: 'bg-success/12 text-success', go: gated(() => router.push({ name: 'customers', query: { redirect: 'payment' } })) },
   ];
-  if (driverConfig.value || store.isManager) {
+  // Capabilities come from the Van Profile type: Field Sales staff take orders and
+  // collect payments only (no van to load, nothing to return into, shifts optional).
+  if (driverConfig.value ? caps.value.can_load_stock : store.isManager) {
     list.push({ label: 'Load Stock', icon: 'truck', accent: 'bg-warning/15 text-warning', go: () => router.push({ name: 'stock-transfer' }) });
   }
-  list.push(
-    { label: 'Return', icon: 'rotate-ccw', accent: 'bg-danger/12 text-danger', go: gated(() => router.push({ name: 'customers', query: { redirect: 'return' } })) },
-    { label: 'Expense', icon: 'file-text', accent: 'bg-info/12 text-info', go: gated(() => router.push({ name: 'expenses' })) },
-  );
-  if (activeShift.value) {
-    list.push({ label: 'Close Shift', icon: 'check-circle', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'shift-close' }) });
-  } else {
-    list.push({ label: 'Open Shift', icon: 'play-circle', accent: 'bg-success/12 text-success', go: () => router.push({ name: 'shift-open' }) });
+  if (caps.value.can_return) {
+    list.push({ label: 'Return', icon: 'rotate-ccw', accent: 'bg-danger/12 text-danger', go: gated(() => router.push({ name: 'customers', query: { redirect: 'return' } })) });
   }
-  list.push({ label: 'Shift Reports', icon: 'activity', accent: 'bg-info/12 text-info', go: () => router.push({ name: 'shift-reports' }) });
+  if (caps.value.uses_shifts) {
+    list.push({ label: 'Cash Out', icon: 'banknote', accent: 'bg-info/12 text-info', go: gated(() => router.push({ name: 'expenses' })) });
+    if (activeShift.value) {
+      list.push({ label: 'Close Shift', icon: 'check-circle', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'shift-close' }) });
+    } else {
+      list.push({ label: 'Open Shift', icon: 'play-circle', accent: 'bg-success/12 text-success', go: () => router.push({ name: 'shift-open' }) });
+    }
+    list.push({ label: 'Shift Reports', icon: 'activity', accent: 'bg-info/12 text-info', go: () => router.push({ name: 'shift-reports' }) });
+  } else {
+    list.push({ label: 'Ledger', icon: 'ledger', accent: 'bg-info/12 text-info', go: () => router.push({ name: 'customers', query: { redirect: 'ledger' } }) });
+  }
   if (store.isManager) {
     list.push({ label: 'Reports', icon: 'list', accent: 'bg-primary/12 text-primary', go: () => router.push({ name: 'reports' }) });
   }
@@ -179,6 +199,7 @@ const actions = computed(() => {
 const orders = ref<SalesOrder[]>([]);
 const dailySummary = ref<{ sales_orders: { count: number; total: number }; payments: { count: number; total: number } } | null>(null);
 const activeShift = ref<ActiveShift | null>(null);
+const shiftSummary = ref<ShiftReport | null>(null);
 const loading = ref(true);
 
 const fmt = (n?: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -197,13 +218,18 @@ onMounted(async () => {
     const [ordersData, summaryData, shiftData] = await Promise.all([
       api.recentOrders(session.value.user),
       api.getDailySummary(),
-      api.getActiveShift().catch(() => null),
+      caps.value.uses_shifts ? api.getActiveShift().catch(() => null) : Promise.resolve(null),
     ]);
     orders.value = ordersData;
     dailySummary.value = summaryData;
     activeShift.value = shiftData;
   } finally {
     loading.value = false;
+  }
+  // The running shift figures load after the page is up; a stale shift's numbers
+  // belong on its closing screen, not here.
+  if (activeShift.value && !activeShift.value.is_stale) {
+    shiftSummary.value = await api.getShiftSummary().catch(() => null);
   }
 });
 

@@ -20,17 +20,17 @@ const router = createRouter({
     { path: '/orders/:name', name: 'order-detail', component: OrderDetailView },
     { path: '/payment', name: 'payment', component: () => import('../views/PaymentEntryView.vue') },
     { path: '/ledger', name: 'ledger', component: () => import('../views/CustomerLedgerView.vue') },
-    { path: '/stock', name: 'stock-dashboard', component: () => import('../views/DriverStockView.vue'), meta: { requiresDriverConfig: true } },
-    { path: '/transfer', name: 'stock-transfer', component: () => import('../views/StockTransferView.vue'), meta: { requiresDriverConfig: true } },
+    { path: '/stock', name: 'stock-dashboard', component: () => import('../views/DriverStockView.vue'), meta: { requiresDriverConfig: true, capability: 'can_view_stock' } },
+    { path: '/transfer', name: 'stock-transfer', component: () => import('../views/StockTransferView.vue'), meta: { requiresDriverConfig: true, capability: 'can_load_stock' } },
     { path: '/driver-setup', name: 'driver-setup', redirect: { name: 'settings' } },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { requiresManager: true } },
     { path: '/daily-log/:type', name: 'daily-log', component: () => import('../views/DailyLogView.vue') },
     { path: '/payment-detail/:name', name: 'payment-detail', component: () => import('../views/PaymentDetailView.vue') },
-    { path: '/expenses', name: 'expenses', component: () => import('../views/ExpenseLogView.vue') },
-    { path: '/return-items', name: 'return-items', component: () => import('../views/ReturnCatalogView.vue') },
-    { path: '/return-cart', name: 'return-cart', component: () => import('../views/ReturnCartView.vue') },
-    { path: '/shift/open', name: 'shift-open', component: () => import('../views/ShiftOpenView.vue') },
-    { path: '/shift/close', name: 'shift-close', component: () => import('../views/ShiftCloseView.vue') },
+    { path: '/expenses', name: 'expenses', component: () => import('../views/CashMovementView.vue'), meta: { capability: 'uses_shifts' } },
+    { path: '/return-items', name: 'return-items', component: () => import('../views/ReturnCatalogView.vue'), meta: { capability: 'can_return' } },
+    { path: '/return-cart', name: 'return-cart', component: () => import('../views/ReturnCartView.vue'), meta: { capability: 'can_return' } },
+    { path: '/shift/open', name: 'shift-open', component: () => import('../views/ShiftOpenView.vue'), meta: { capability: 'uses_shifts' } },
+    { path: '/shift/close', name: 'shift-close', component: () => import('../views/ShiftCloseView.vue'), meta: { capability: 'uses_shifts' } },
     { path: '/reports', name: 'reports', component: () => import('../views/ReportsView.vue'), meta: { requiresManager: true } },
     { path: '/shift/reports', name: 'shift-reports', component: () => import('../views/ShiftReportsView.vue') },
     { path: '/shift/summary', name: 'shift-summary', component: () => import('../views/ShiftReportView.vue') },
@@ -56,6 +56,12 @@ router.beforeEach(async (to, _from, next) => {
   }
   if (to.meta.requiresDriverConfig && !store.driverConfig && !store.isManager) {
     return next({ name: 'dashboard', query: { setup: 'driver-profile' } });
+  }
+  // Profile-type gating (Field Sales has no van stock, returns or, by default, shifts).
+  // Managers keep every screen: they close other people's shifts and inspect any van.
+  const capability = to.meta.capability as keyof typeof store.capabilities | undefined;
+  if (capability && store.driverConfig && !store.capabilities[capability] && !store.isManager) {
+    return next({ name: 'dashboard' });
   }
   if (to.meta.requiresManager && !store.session?.is_manager) {
     return next({ name: 'dashboard' });

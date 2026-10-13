@@ -131,6 +131,7 @@ permission_query_conditions = {
 	"Van Profile": "van_sale.permissions.get_van_profile_permission_query_conditions",
 	"Van Shift Opening": "van_sale.permissions.get_van_shift_opening_permission_query_conditions",
 	"Van Shift Closing": "van_sale.permissions.get_van_shift_closing_permission_query_conditions",
+	"Van Cash Movement": "van_sale.permissions.get_van_cash_movement_permission_query_conditions",
 }
 
 has_permission = {
@@ -139,6 +140,7 @@ has_permission = {
 	"Van Profile": "van_sale.permissions.has_van_profile_permission",
 	"Van Shift Opening": "van_sale.permissions.has_van_shift_opening_permission",
 	"Van Shift Closing": "van_sale.permissions.has_van_shift_closing_permission",
+	"Van Cash Movement": "van_sale.permissions.has_van_cash_movement_permission",
 }
 
 # Run after every bench migrate to ensure Custom DocPerm entries exist for the
@@ -168,6 +170,12 @@ jinja = {
 
 # Scheduled Tasks
 # ---------------
+
+scheduler_events = {
+	# Managers get a Notification Log (desk bell + email per their settings) listing
+	# every shift still open from an earlier day.
+	"daily": ["van_sale.van_sale.tasks.notify_stale_shifts"],
+}
 
 # scheduler_events = {
 # 	"all": [

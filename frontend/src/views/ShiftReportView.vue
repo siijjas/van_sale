@@ -3,12 +3,32 @@
     <template #actions>
       <AppButton v-if="isSummary" variant="secondary" size="sm" icon="refresh" :loading="loading" @click="load">Refresh</AppButton>
       <AppButton v-if="report" variant="secondary" size="sm" icon="printer" @click="printPdf">Print</AppButton>
+      <AppButton v-if="canReopen" variant="warning" size="sm" icon="refresh" :loading="reopening" @click="reopen">Reopen shift</AppButton>
     </template>
 
     <SkeletonList v-if="loading && !report" :rows="4" height="6rem" />
 
     <div v-else-if="report" class="space-y-5 pb-8">
       <AppAlert v-if="isSummary" tone="info" message="Interim report. Your shift is still open, so these figures will change until you close it." />
+      <AppAlert v-if="actionError" tone="danger" :message="actionError" />
+      <AppAlert
+        v-if="isSummary && report.draft_orders?.length"
+        tone="warning"
+        :title="`${report.draft_orders.length} draft order${report.draft_orders.length === 1 ? '' : 's'} not submitted`"
+      >
+        Not in these figures until submitted.
+        <ul class="mt-1.5 space-y-1">
+          <li v-for="d in report.draft_orders" :key="d.name">
+            <button type="button" class="font-semibold underline underline-offset-2" @click="router.push({ name: 'order-detail', params: { name: d.name } })">{{ d.name }}</button>
+            <span class="opacity-90"> · {{ d.customer_name || d.customer }} · {{ currency }} {{ fmt(d.grand_total) }}</span>
+          </li>
+        </ul>
+      </AppAlert>
+      <AppAlert
+        v-else-if="!isSummary && t.draft_orders_count"
+        tone="info"
+        :message="`${t.draft_orders_count} draft order${t.draft_orders_count === 1 ? ' was' : 's were'} left unsubmitted when this shift closed and ${t.draft_orders_count === 1 ? 'is' : 'are'} not in these figures.`"
+      />
 
       <AppCard padding="sm">
         <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
@@ -16,11 +36,12 @@
           <div v-if="report.shift.van_profile"><dt class="text-muted">Van</dt><dd class="font-semibold text-foreground">{{ report.shift.van_profile }}</dd></div>
           <div><dt class="text-muted">Opened</dt><dd class="tnum font-semibold text-foreground">{{ formatDateTime(report.shift.period_start) }}</dd></div>
           <div><dt class="text-muted">{{ isSummary ? 'As of' : 'Closed' }}</dt><dd class="tnum font-semibold text-foreground">{{ formatDateTime(isSummary ? report.generated_at : report.shift.period_end) }}</dd></div>
+          <div v-if="report.shift.closed_by"><dt class="text-muted">Closed by</dt><dd class="font-semibold text-foreground">{{ report.shift.closed_by }}</dd></div>
         </dl>
       </AppCard>
 
       <div class="grid grid-cols-2 gap-3">
-        <KpiTile label="Sales" :value="`${currency} ${fmt(t.total_sales)}`" :sub="`${t.sales_orders_count} orders`" icon="cart" tone="primary" />
+        <KpiTile label="Sales" :value="`${currency} ${fmt(t.total_sales)}`" :sub="`${t.sales_orders_count} orders · ${qty(t.total_quantity)} units`" icon="cart" tone="primary" />
         <KpiTile label="Collections" :value="`${currency} ${fmt(t.total_collections)}`" :sub="`${t.payments_count} payments`" icon="wallet" tone="success" />
         <KpiTile label="Expenses" :value="`${currency} ${fmt(t.total_expenses)}`" :sub="`${t.expenses_count} entries`" icon="file-text" tone="warning" />
         <KpiTile label="Expected cash" :value="`${currency} ${fmt(t.expected_cash)}`" :sub="`Float ${currency} ${fmt(t.total_opening_float)}`" icon="banknote" tone="info" />
@@ -32,8 +53,11 @@
         :class="varianceClass(t.net_difference)"
       >
         <div>
-          <p class="text-sm font-semibold">Net variance</p>
-          <p class="text-xs opacity-90">{{ t.net_difference === 0 ? 'Counted matches expected.' : t.net_difference > 0 ? 'More than expected.' : 'Less than expected.' }}</p>
+          <p class="text-sm font-semibold">Net variance<template v-if="t.variance_status"> · {{ t.variance_status }}</template></p>
+          <p class="text-xs opacity-90">
+            {{ t.net_difference === 0 ? 'Counted matches expected.' : t.net_difference > 0 ? 'More than expected.' : 'Less than expected.' }}
+            <template v-if="t.variance_tolerance"> Tolerance {{ currency }} {{ fmt(t.variance_tolerance) }}.</template>
+          </p>
         </div>
         <span class="tnum text-lg font-bold">{{ signed(t.net_difference) }}</span>
       </div>
@@ -48,6 +72,19 @@
         <div class="flex items-center justify-between border-t border-line pt-2 text-sm">
           <span class="font-semibold text-foreground">Net invoiced</span>
           <span class="tnum font-bold text-foreground">{{ currency }} {{ fmt(t.net_invoiced) }}</span>
+        </div>
+      </AppCard>
+
+      <!-- Taxes -->
+      <AppCard v-if="report.taxes?.length" padding="lg" class="space-y-2">
+        <p class="mb-1 text-sm font-semibold text-foreground">Taxes on orders</p>
+        <div v-for="x in report.taxes" :key="`${x.account_head}-${x.rate}`" class="flex items-center justify-between text-sm">
+          <span class="min-w-0 truncate text-muted">{{ x.account_head }}<span v-if="x.rate" class="text-subtle"> · {{ qty(x.rate) }}%</span></span>
+          <span class="tnum font-semibold text-foreground">{{ currency }} {{ fmt(x.amount) }}</span>
+        </div>
+        <div class="flex items-center justify-between border-t border-line pt-2 text-sm">
+          <span class="font-semibold text-foreground">Total taxes</span>
+          <span class="tnum font-bold text-foreground">{{ currency }} {{ fmt(t.total_taxes) }}</span>
         </div>
       </AppCard>
 
@@ -94,8 +131,25 @@
           <div class="min-w-0">
             <p class="text-foreground">{{ e.expense_type }}</p>
             <p v-if="e.notes" class="truncate text-xs text-muted">{{ e.notes }}</p>
+            <p v-if="e.journal_entry" class="text-[11px] text-subtle">{{ e.journal_entry }}</p>
           </div>
           <span class="tnum font-semibold text-foreground">{{ currency }} {{ fmt(e.amount) }}</span>
+        </div>
+      </AppCard>
+
+      <!-- Deposits to office -->
+      <AppCard v-if="report.deposits?.length" padding="lg" class="space-y-2">
+        <p class="mb-1 text-sm font-semibold text-foreground">Cash deposited to office</p>
+        <div v-for="d in report.deposits" :key="d.name" class="flex items-start justify-between gap-3 text-sm">
+          <div class="min-w-0">
+            <p class="text-foreground">{{ d.expense_type }}</p>
+            <p v-if="d.notes" class="truncate text-xs text-muted">{{ d.notes }}</p>
+            <p v-if="d.journal_entry" class="text-[11px] text-subtle">{{ d.journal_entry }}</p>
+          </div>
+          <span class="tnum font-semibold text-foreground">{{ currency }} {{ fmt(d.amount) }}</span>
+        </div>
+        <div class="flex items-center justify-between border-t border-line pt-2 text-sm font-bold text-foreground">
+          <span>Total deposited</span><span class="tnum">{{ currency }} {{ fmt(t.total_deposits) }}</span>
         </div>
       </AppCard>
 
@@ -151,6 +205,25 @@ const isSummary = computed(() => route.name === 'shift-summary');
 const report = ref<ShiftReport | null>(null);
 const loading = ref(true);
 const error = ref('');
+const actionError = ref('');
+const reopening = ref(false);
+const canReopen = computed(() => !isSummary.value && !!report.value?.shift.closing_shift && store.isManager);
+
+const reopen = async () => {
+  const r = report.value;
+  if (!r?.shift.closing_shift) return;
+  if (!window.confirm(`Reopen ${r.shift.driver_name}'s shift from ${formatDate(r.shift.shift_date)}? The closing ${r.shift.closing_shift} is cancelled and the shift continues until it is closed again.`)) return;
+  reopening.value = true;
+  actionError.value = '';
+  try {
+    const opening = await api.reopenShift(r.shift.closing_shift);
+    router.replace({ name: 'shift-summary', query: { opening: opening.name } });
+  } catch (e: any) {
+    actionError.value = e?.message || 'Could not reopen the shift.';
+  } finally {
+    reopening.value = false;
+  }
+};
 
 const t = computed(() => report.value!.totals);
 const description = computed(() =>
@@ -162,6 +235,8 @@ const description = computed(() =>
 );
 const salesLines = computed(() => [
   { label: 'Sales orders', count: t.value.sales_orders_count, amount: t.value.total_sales, negative: false },
+  { label: 'Net before tax', count: `${qty(t.value.total_quantity)} units`, amount: t.value.net_total, negative: false },
+  { label: 'Taxes', count: report.value?.taxes?.length || 0, amount: t.value.total_taxes, negative: false },
   { label: 'Sales invoices', count: t.value.invoices_count, amount: t.value.invoiced_total, negative: false },
   { label: 'Returns', count: t.value.returns_count, amount: t.value.returns_total, negative: true },
 ]);

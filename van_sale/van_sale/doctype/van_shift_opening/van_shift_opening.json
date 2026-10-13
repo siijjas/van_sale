@@ -13,6 +13,8 @@
   "company",
   "van_profile",
   "period_start",
+  "period_end",
+  "closing_shift",
   "opening_float",
   "section_balances",
   "balance_details",
@@ -63,6 +65,20 @@
    "label": "Period Start"
   },
   {
+   "fieldname": "period_end",
+   "fieldtype": "Datetime",
+   "label": "Period End",
+   "read_only": 1,
+   "description": "Set when the shift is closed. Activity is aggregated by creation time between Period Start and Period End."
+  },
+  {
+   "fieldname": "closing_shift",
+   "fieldtype": "Link",
+   "label": "Closing Shift",
+   "options": "Van Shift Closing",
+   "read_only": 1
+  },
+  {
    "fieldname": "opening_float",
    "fieldtype": "Currency",
    "in_list_view": 1,
@@ -88,7 +104,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-10-12 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Van Sale",
  "name": "Van Shift Opening",

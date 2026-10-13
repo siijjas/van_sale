@@ -40,15 +40,14 @@ def get_van_expense_log_permission_query_conditions(user: str | None = None):
 
 
 def has_van_expense_log_permission(doc, ptype="read", user: str | None = None):
-	"""Document-level check: drivers may create, read, and edit their own expense logs; no delete."""
+	"""Document-level check: drivers may only read their own legacy expense logs.
+
+	New expenses are Van Cash Movements (see cash_movement.py); the log is history."""
 	current_user = user or frappe.session.user
 	if current_user == "Administrator" or _is_manager(current_user):
 		return True
-	if ptype == "create":
-		return True
-	if ptype in {"read", "select", "write", "print", "email"}:
+	if ptype in {"read", "select", "print", "email"}:
 		return getattr(doc, "driver", None) == current_user
-	# delete, submit, cancel → denied for drivers
 	return False
 
 
@@ -106,6 +105,24 @@ def get_van_shift_closing_permission_query_conditions(user: str | None = None):
 def has_van_shift_closing_permission(doc, ptype="read", user: str | None = None):
 	"""Document-level check: drivers may create/submit/read/print their own closing shifts."""
 	return _has_shift_permission(doc, ptype, user)
+
+
+# ─── Van Cash Movement ─────────────────────────────────────────────────────────
+
+def get_van_cash_movement_permission_query_conditions(user: str | None = None):
+	"""Row-level filter: drivers see only their own cash movements; managers see all."""
+	return _shift_query_conditions("Van Cash Movement", user)
+
+
+def has_van_cash_movement_permission(doc, ptype="read", user: str | None = None):
+	"""Drivers read their own; everything else goes through cash_movement.py with
+	ignore_permissions after its own checks (cancel is manager-only there too)."""
+	current_user = user or frappe.session.user
+	if current_user == "Administrator" or _is_manager(current_user):
+		return True
+	if ptype in {"read", "select", "print", "email"}:
+		return getattr(doc, "driver", None) == current_user
+	return False
 
 
 # ─── Van Profile ───────────────────────────────────────────────────────────────
