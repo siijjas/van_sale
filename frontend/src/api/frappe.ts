@@ -1076,7 +1076,9 @@ export const getPeriodReport = (fromDate: string, toDate: string, driver?: strin
   });
 
 export function downloadPdf(doctype: string, name: string, format = 'Standard') {
-  const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}&format=${encodeURIComponent(format)}&no_letterhead=0`;
+  // van_sale.pdf.download_pdf inlines the print stylesheet so wkhtmltopdf never has to
+  // fetch the site's own assets over the network (that fetch 404s behind some proxies).
+  const url = `/api/method/van_sale.van_sale.pdf.download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}&format=${encodeURIComponent(format)}&no_letterhead=0`;
   window.open(url, '_blank');
 }
 

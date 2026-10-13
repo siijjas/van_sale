@@ -110,3 +110,41 @@ class TestShiftReports(base.TestShiftAndAccessRegressions):
 for _name in dir(base.TestShiftAndAccessRegressions):
 	if _name.startswith("test_"):
 		setattr(TestShiftReports, _name, None)
+
+
+class TestPdfDownload(base.TestShiftAndAccessRegressions):
+	"""The PWA's PDF endpoint must not depend on wkhtmltopdf fetching the print
+	stylesheet from the site's public URL (see van_sale/van_sale/pdf.py)."""
+
+	def test_closing_report_pdf_is_generated_with_inlined_stylesheet(self):
+		from van_sale.van_sale.pdf import _inline_stylesheets, download_pdf
+
+		frappe.set_user(self.driver_user)
+		opening = open_shift(balance_details="[]")["name"]
+		closing = close_shift(opening_shift=opening, reconciliation="[]")["name"]
+
+		html = frappe.get_print("Van Shift Closing", closing, "Van Shift Closing Report")
+		self.assertIn("print.bundle", html)
+		inlined = _inline_stylesheets(html)
+		self.assertNotIn('<link type="text/css" rel="stylesheet" href="/assets/frappe/dist/css/print.bundle', inlined)
+		self.assertIn("<style>", inlined)
+
+		download_pdf("Van Shift Closing", closing, "Van Shift Closing Report")
+		self.assertEqual(frappe.local.response.type, "pdf")
+		self.assertEqual(frappe.local.response.filename, f"{closing}.pdf")
+		self.assertTrue(frappe.local.response.filecontent.startswith(b"%PDF"))
+
+	def test_driver_cannot_download_another_drivers_closing(self):
+		from van_sale.van_sale.pdf import download_pdf
+
+		frappe.set_user("Administrator")
+		opening = open_shift(balance_details="[]")["name"]
+		closing = close_shift(opening_shift=opening, reconciliation="[]")["name"]
+		frappe.set_user(self.driver_user)
+		with self.assertRaises(frappe.PermissionError):
+			download_pdf("Van Shift Closing", closing, "Van Shift Closing Report")
+
+
+for _name in dir(base.TestShiftAndAccessRegressions):
+	if _name.startswith("test_"):
+		setattr(TestPdfDownload, _name, None)
